@@ -78,13 +78,12 @@
 
   <script>
     async function fetchPrices(symbols, ids) {
-      const url = `https://apidojo-yahoo-finance-v1.p.rapidapi.com/market/v2/get-quotes?region=US&symbols=${symbols.join(',')}`;
+      const url = `https://yfapi.net/v6/finance/quote?symbols=${symbols.join(',')}`;
       try {
         const response = await fetch(url, {
           method: 'GET',
           headers: {
-            'X-RapidAPI-Key': '875989e702msh697a16d4be6b26dp1d8befjsn954dc4091d93',
-            'X-RapidAPI-Host': 'apidojo-yahoo-finance-v1.p.rapidapi.com'
+            'x-api-key': '875989e702msh697a16d4be6b26dp1d8befjsn954dc4091d93'
           }
         });
 
