@@ -77,9 +77,8 @@
   </div>
 
   <script>
-    async function fetchPrice(symbol, elementId) {
-      const url = `https://apidojo-yahoo-finance-v1.p.rapidapi.com/market/v2/get-quotes?region=US&symbols=${symbol}`;
-
+    async function fetchPrices(symbols, ids) {
+      const url = `https://apidojo-yahoo-finance-v1.p.rapidapi.com/market/v2/get-quotes?region=US&symbols=${symbols.join(',')}`;
       try {
         const response = await fetch(url, {
           method: 'GET',
@@ -92,27 +91,29 @@
         const data = await response.json();
         const results = data?.quoteResponse?.result;
 
-        if (Array.isArray(results) && results.length > 0) {
-          const quote = results[0];
+        symbols.forEach((symbol, index) => {
+          const elementId = ids[index];
+          const quote = results.find(q => q.symbol === symbol);
+          const element = document.getElementById(elementId);
           if (quote && typeof quote.regularMarketPrice === 'number') {
-            document.getElementById(elementId).textContent = quote.regularMarketPrice.toFixed(2);
-            return;
+            element.textContent = quote.regularMarketPrice.toFixed(2);
+          } else {
+            console.warn(`No valid price data for ${symbol}`);
+            element.textContent = 'N/A';
           }
-        }
-
-        console.warn(`No valid price data for ${symbol}`);
-        document.getElementById(elementId).textContent = 'N/A';
+        });
       } catch (error) {
-        console.error(`Error fetching ${symbol}:`, error);
-        document.getElementById(elementId).textContent = 'Error';
+        console.error("Error fetching data:", error);
+        ids.forEach(id => {
+          const element = document.getElementById(id);
+          element.textContent = 'Error';
+        });
       }
     }
 
-    fetchPrice("^GSPC", "sp500");      // S&P 500
-    fetchPrice("BND", "bnd");          // 10Y via BND ETF
-    fetchPrice("AUDUSD=X", "audusd");  // AUD/USD
-    fetchPrice("TSLA", "tsla");        // Tesla
-    fetchPrice("ACDC.AX", "acdc");     // ACDC ETF
+    const symbols = ["^GSPC", "BND", "AUDUSD=X", "TSLA", "ACDC.AX"];
+    const ids = ["sp500", "bnd", "audusd", "tsla", "acdc"];
+    fetchPrices(symbols, ids);
   </script>
 </body>
 </html>
