@@ -78,22 +78,21 @@
 
   <script>
     async function fetchPrices(symbols, ids) {
-      const url = `https://yfapi.net/v6/finance/quote?symbols=${symbols.join(',')}`;
+      const url = `https://yahoo-finance15.p.rapidapi.com/api/yahoo/qu/quote/${symbols.join(',')}`;
       try {
         const response = await fetch(url, {
           method: 'GET',
           headers: {
-            'x-rapidapi-host': 'yfapi.net',
+            'x-rapidapi-host': 'yahoo-finance15.p.rapidapi.com',
             'x-rapidapi-key': '875989e702msh697a16d4be6b26dp1d8befjsn954dc4091d93'
           }
         });
 
         const data = await response.json();
-        const results = data?.quoteResponse?.result ?? [];
 
         symbols.forEach((symbol, index) => {
           const element = document.getElementById(ids[index]);
-          const quote = results.find(q => q.symbol === symbol);
+          const quote = data.find(q => q.symbol === symbol);
           if (quote && typeof quote.regularMarketPrice === 'number') {
             element.textContent = quote.regularMarketPrice.toFixed(2);
           } else {
