@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Market Warning Dashboard</title>
+  <style>
+    body {
+      background-color: #111;
+      color: #fff;
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .card {
+      background: #1a1a1a;
+      border-radius: 16px;
+      box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
+      padding: 1.5rem;
+    }
+    .card h2 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+      color: #0ff;
+    }
+    .card .value {
+      font-size: 2rem;
+      font-weight: 600;
+    }
+    .manual-input {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.5rem;
+      font-size: 1.2rem;
+      border-radius: 8px;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>S&P 500 Index</h2>
+    <div class="value" id="sp500">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>10Y US Treasury Yield (BND Proxy)</h2>
+    <div class="value" id="bnd">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>AUD/USD Exchange Rate</h2>
+    <div class="value" id="audusd">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>TSLA Stock Price</h2>
+    <div class="value" id="tsla">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>Lithium Spot Price (Manual)</h2>
+    <input class="manual-input" id="lithium" placeholder="Enter price (e.g. 13450)" />
+  </div>
+
+  <div class="card">
+    <h2>ACDC ETF Price</h2>
+    <div class="value" id="acdc">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>Margin Debt Level (Manual)</h2>
+    <input class="manual-input" id="margin" placeholder="Enter latest reading" />
+  </div>
+
+  <script>
+    async function fetchPrice(symbol, elementId) {
+      const url = `https://apidojo-yahoo-finance-v1.p.rapidapi.com/market/v2/get-quotes?region=US&symbols=${symbol}`;
+
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'X-RapidAPI-Key': '875989e702msh697a16d4be6b26dp1d8befjsn954dc4091d93',
+            'X-RapidAPI-Host': 'apidojo-yahoo-finance-v1.p.rapidapi.com'
+          }
+        });
+
+        const data = await response.json();
+        const results = data?.quoteResponse?.result;
+
+        if (Array.isArray(results) && results.length > 0) {
+          const quote = results[0];
+          if (quote && typeof quote.regularMarketPrice === 'number') {
+            document.getElementById(elementId).textContent = quote.regularMarketPrice.toFixed(2);
+            return;
+          }
+        }
+
+        console.warn(`No valid price data for ${symbol}`);
+        document.getElementById(elementId).textContent = 'N/A';
+      } catch (error) {
+        console.error(`Error fetching ${symbol}:`, error);
+        document.getElementById(elementId).textContent = 'Error';
+      }
+    }
+
+    fetchPrice("^GSPC", "sp500");      // S&P 500
+    fetchPrice("BND", "bnd");          // 10Y via BND ETF
+    fetchPrice("AUDUSD=X", "audusd");  // AUD/USD
+    fetchPrice("TSLA", "tsla");        // Tesla
+    fetchPrice("ACDC.AX", "acdc");     // ACDC ETF
+  </script>
+</body>
+</html>
