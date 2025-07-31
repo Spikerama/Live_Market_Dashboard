@@ -83,21 +83,20 @@
         const response = await fetch(url, {
           method: 'GET',
           headers: {
-            'x-api-key': '875989e702msh697a16d4be6b26dp1d8befjsn954dc4091d93'
+            'x-rapidapi-host': 'yfapi.net',
+            'x-rapidapi-key': '875989e702msh697a16d4be6b26dp1d8befjsn954dc4091d93'
           }
         });
 
         const data = await response.json();
-        const results = data?.quoteResponse?.result;
+        const results = data?.quoteResponse?.result ?? [];
 
         symbols.forEach((symbol, index) => {
-          const elementId = ids[index];
+          const element = document.getElementById(ids[index]);
           const quote = results.find(q => q.symbol === symbol);
-          const element = document.getElementById(elementId);
           if (quote && typeof quote.regularMarketPrice === 'number') {
             element.textContent = quote.regularMarketPrice.toFixed(2);
           } else {
-            console.warn(`No valid price data for ${symbol}`);
             element.textContent = 'N/A';
           }
         });
