@@ -34,7 +34,7 @@
 </head>
 <body>
   <div class="card">
-    <h2>S&P 500 Index</h2>
+    <h2>S&P 500 Index (via SPY)</h2>
     <div class="value" id="sp500">Loading...</div>
   </div>
 
@@ -42,7 +42,7 @@
     async function fetchSP500() {
       const el = document.getElementById("sp500");
       try {
-        const response = await fetch("https://api.twelvedata.com/price?symbol=SPX&apikey=26137bba624c4dcb9b5284ad1b234071");
+        const response = await fetch("https://api.twelvedata.com/price?symbol=SPY&apikey=26137bba624c4dcb9b5284ad1b234071");
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
