@@ -134,15 +134,13 @@
           fetch("https://api.twelvedata.com/quote?symbol=US02Y&apikey=26137bba624c4dcb9b5284ad1b234071")
         ]);
 
-        if (!tenYRes.ok || !twoYRes.ok) throw new Error("Failed to fetch yield data.");
-
         const tenYData = await tenYRes.json();
         const twoYData = await twoYRes.json();
 
         const tenY = parseFloat(tenYData.close);
         const twoY = parseFloat(twoYData.close);
 
-        if (isNaN(tenY) || isNaN(twoY)) throw new Error("Yield data invalid");
+        if (!isFinite(tenY) || !isFinite(twoY)) throw new Error("Invalid yield values");
 
         const spread = (tenY - twoY).toFixed(2);
         const arrow = spread >= 0 ? '▲' : '▼';
