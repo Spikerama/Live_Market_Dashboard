@@ -141,6 +141,9 @@
 
         const tenY = parseFloat(tenYData.close);
         const twoY = parseFloat(twoYData.close);
+
+        if (isNaN(tenY) || isNaN(twoY)) throw new Error("Yield data invalid");
+
         const spread = (tenY - twoY).toFixed(2);
         const arrow = spread >= 0 ? '▲' : '▼';
         const arrowClass = spread >= 0 ? 'arrow-up' : 'arrow-down';
