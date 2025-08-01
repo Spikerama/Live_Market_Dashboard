@@ -19,66 +19,98 @@
       background: #1a1a1a;
       border-radius: 16px;
       box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
-      padding: 1rem;
+      padding: 1.5rem;
+      text-align: center;
     }
     .card h2 {
       font-size: 1rem;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
       color: #0ff;
     }
-    .tradingview-widget-container {
-      height: 300px;
+    .value {
+      font-size: 2rem;
+      font-weight: bold;
+    }
+    .change {
+      font-size: 1rem;
+    }
+    .up {
+      color: #0f0;
+    }
+    .down {
+      color: #f00;
+    }
+    .loading {
+      color: #888;
     }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>S&P 500 Index</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_0&symbol=SP:SPX&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
+    <div class="value" id="sp500">Loading...</div>
+    <div class="change" id="sp500-change"></div>
   </div>
-
   <div class="card">
     <h2>Volatility Index (VIX)</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol=CBOE:VIX&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
+    <div class="value" id="vix">Loading...</div>
+    <div class="change" id="vix-change"></div>
+  </div>
+  <div class="card">
+    <h2>10Y - 2Y Yield Curve Spread</h2>
+    <div class="value" id="yield">Loading...</div>
+    <div class="change" id="yield-change"></div>
   </div>
 
-  <div class="card">
-    <h2>10Y Treasury Yield</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_2&symbol=TVC:US10Y&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
-  </div>
+  <script>
+    async function fetchQuote(symbol) {
+      const url = `https://api.marketdataapi.dev/v1/quote?symbol=${symbol}&api_token=demo`;
+      try {
+        const res = await fetch(url);
+        const json = await res.json();
+        const data = json.data?.[symbol];
+        if (!data) throw new Error("Invalid data for " + symbol);
+        return data;
+      } catch (error) {
+        console.error("Error fetching", symbol + ":", error);
+        return null;
+      }
+    }
 
-  <div class="card">
-    <h2>2Y Treasury Yield</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_3&symbol=TVC:US02Y&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
-  </div>
+    function updateCard(id, value, change) {
+      const el = document.getElementById(id);
+      const chg = document.getElementById(id + "-change");
+      if (!value) {
+        el.textContent = "Error";
+        chg.textContent = "";
+        return;
+      }
+      el.textContent = value.toFixed(2);
+      if (change !== undefined) {
+        const pct = (change >= 0 ? "+" : "") + change.toFixed(2) + "%";
+        chg.textContent = pct;
+        chg.className = "change " + (change >= 0 ? "up" : "down");
+      }
+    }
 
-  <div class="card">
-    <h2>TSLA Stock Price</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_4&symbol=NASDAQ:TSLA&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
-  </div>
+    async function updateDashboard() {
+      const sp500 = await fetchQuote("SPY");
+      updateCard("sp500", sp500?.price, sp500?.change_percent);
 
-  <div class="card">
-    <h2>ACDC ETF Price</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_5&symbol=ASX:ACDC&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
-  </div>
+      const vix = await fetchQuote("VIXY");
+      updateCard("vix", vix?.price, vix?.change_percent);
 
-  <div class="card">
-    <h2>AUD/USD Exchange Rate</h2>
-    <div class="tradingview-widget-container">
-      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_6&symbol=FX_IDC:AUDUSD&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
-    </div>
-  </div>
+      const us10y = await fetchQuote("US10Y");
+      const us2y = await fetchQuote("US2Y");
+      if (us10y && us2y) {
+        const spread = us10y.price - us2y.price;
+        updateCard("yield", spread, spread);
+      } else {
+        updateCard("yield", null);
+      }
+    }
+
+    updateDashboard();
+  </script>
 </body>
 </html>
