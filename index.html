@@ -30,14 +30,6 @@
       font-size: 2rem;
       font-weight: 600;
     }
-    .manual-input {
-      width: 100%;
-      padding: 0.5rem;
-      margin-top: 0.5rem;
-      font-size: 1.2rem;
-      border-radius: 8px;
-      border: none;
-    }
   </style>
 </head>
 <body>
@@ -46,63 +38,30 @@
     <div class="value" id="sp500">Loading...</div>
   </div>
 
-  <div class="card">
-    <h2>10Y US Treasury Yield</h2>
-    <div class="value" id="tnx">Loading...</div>
-  </div>
-
-  <div class="card">
-    <h2>AUD/USD Exchange Rate</h2>
-    <div class="value" id="audusd">Loading...</div>
-  </div>
-
-  <div class="card">
-    <h2>TSLA Stock Price</h2>
-    <div class="value" id="tsla">Loading...</div>
-  </div>
-
-  <div class="card">
-    <h2>Lithium Spot Price (Manual)</h2>
-    <input class="manual-input" id="lithium" placeholder="Enter price (e.g. 13450)" />
-  </div>
-
-  <div class="card">
-    <h2>ACDC ETF Price (Manual)</h2>
-    <input class="manual-input" id="acdc" placeholder="Enter price (e.g. 84.75)" />
-  </div>
-
-  <div class="card">
-    <h2>Margin Debt Level (Manual)</h2>
-    <input class="manual-input" id="margin" placeholder="Enter latest reading" />
-  </div>
-
   <script>
-    async function fetchMarketData() {
-      const symbolMap = {
-        "^GSPC": "sp500",
-        "^TNX": "tnx",
-        "AUDUSD=X": "audusd",
-        "TSLA": "tsla"
-      };
+    async function fetchSP500() {
+      const el = document.getElementById("sp500");
+      try {
+        const response = await fetch("https://api.twelvedata.com/price?symbol=SPX&apikey=demo");
 
-      for (const [symbol, elementId] of Object.entries(symbolMap)) {
-        try {
-          const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
-          const response = await fetch(url);
-          if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-          const json = await response.json();
-          const result = json?.quoteResponse?.result?.[0];
-          const value = result?.regularMarketPrice;
-          document.getElementById(elementId).textContent =
-            typeof value === 'number' ? value.toFixed(2) : 'N/A';
-        } catch (error) {
-          console.error(`Error fetching data for ${symbol}:`, error);
-          document.getElementById(elementId).textContent = 'Error';
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        const json = await response.json();
+
+        if (!json || typeof json.price !== 'string') {
+          throw new Error("Unexpected API response format.");
+        }
+
+        el.textContent = parseFloat(json.price).toFixed(2);
+      } catch (err) {
+        console.error("Error fetching S&P 500:", err);
+        el.textContent = 'Error';
       }
     }
 
-    fetchMarketData();
+    fetchSP500();
   </script>
 </body>
 </html>
