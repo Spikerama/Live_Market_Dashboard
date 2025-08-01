@@ -64,7 +64,7 @@
   </div>
 
   <div class="card">
-    <h2>Volatility Index (VIX)</h2>
+    <h2>Volatility Index (via VIXY)</h2>
     <div class="value" id="vix"><span class="spinner"></span></div>
     <div class="change" id="vix-change"></div>
   </div>
@@ -107,7 +107,7 @@
       const changeEl = document.getElementById("vix-change");
 
       try {
-        const response = await fetch("https://api.twelvedata.com/quote?symbol=VIX&apikey=26137bba624c4dcb9b5284ad1b234071");
+        const response = await fetch("https://api.twelvedata.com/quote?symbol=VIXY&apikey=26137bba624c4dcb9b5284ad1b234071");
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -128,7 +128,7 @@
         changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
 
       } catch (err) {
-        console.error("Error fetching VIX:", err);
+        console.error("Error fetching VIX proxy:", err);
         el.textContent = 'Error';
         changeEl.textContent = '';
       }
