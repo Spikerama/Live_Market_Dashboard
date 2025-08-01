@@ -76,15 +76,21 @@
   </div>
 
   <script>
+    const apiKey = '26137bba624c4dcb9b5284ad1b234071';
+
+    async function fetchQuote(symbol) {
+      const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${apiKey}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
+      const json = await res.json();
+      return json;
+    }
+
     async function fetchSP500() {
       const el = document.getElementById("sp500");
       const changeEl = document.getElementById("sp500-change");
-
       try {
-        const response = await fetch("https://api.twelvedata.com/quote?symbol=SPY&apikey=26137bba624c4dcb9b5284ad1b234071");
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const json = await response.json();
-
+        const json = await fetchQuote("SPY");
         const price = parseFloat(json.close).toFixed(2);
         const percentChange = parseFloat(json.percent_change).toFixed(2);
         const arrow = percentChange >= 0 ? '▲' : '▼';
@@ -92,7 +98,6 @@
 
         el.textContent = price;
         changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
-
       } catch (err) {
         console.error("Error fetching S&P 500:", err);
         el.textContent = 'Error';
@@ -103,12 +108,8 @@
     async function fetchVIX() {
       const el = document.getElementById("vix");
       const changeEl = document.getElementById("vix-change");
-
       try {
-        const response = await fetch("https://api.twelvedata.com/quote?symbol=VIXY&apikey=26137bba624c4dcb9b5284ad1b234071");
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const json = await response.json();
-
+        const json = await fetchQuote("VIXY");
         const price = parseFloat(json.close).toFixed(2);
         const percentChange = parseFloat(json.percent_change).toFixed(2);
         const arrow = percentChange >= 0 ? '▲' : '▼';
@@ -116,7 +117,6 @@
 
         el.textContent = price;
         changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
-
       } catch (err) {
         console.error("Error fetching VIX proxy:", err);
         el.textContent = 'Error';
@@ -124,30 +124,18 @@
       }
     }
 
-    async function fetchYieldCurveSpread() {
+    async function fetchYieldSpread() {
       const el = document.getElementById("yield-spread");
       const changeEl = document.getElementById("yield-spread-change");
-
       try {
-        const res = await fetch("https://www.marketwatch.com/investing/bond/10_year?mod=over_search");
-        const text = await res.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'text/html');
+        const tenY = await fetchQuote("US10Y:XNAS");
+        const twoY = await fetchQuote("US2Y:XNAS");
 
-        const tenYText = doc.querySelector('[data-field="Last"]')?.textContent;
+        const val10 = parseFloat(tenY.close);
+        const val2 = parseFloat(twoY.close);
+        if (!isFinite(val10) || !isFinite(val2)) throw new Error("Bad yield values");
 
-        const res2 = await fetch("https://www.marketwatch.com/investing/bond/2_year?mod=over_search");
-        const text2 = await res2.text();
-        const doc2 = parser.parseFromString(text2, 'text/html');
-
-        const twoYText = doc2.querySelector('[data-field="Last"]')?.textContent;
-
-        const tenY = parseFloat(tenYText);
-        const twoY = parseFloat(twoYText);
-
-        if (!isFinite(tenY) || !isFinite(twoY)) throw new Error("Invalid yield values scraped");
-
-        const spread = (tenY - twoY).toFixed(2);
+        const spread = (val10 - val2).toFixed(2);
         const arrow = spread >= 0 ? '▲' : '▼';
         const arrowClass = spread >= 0 ? 'arrow-up' : 'arrow-down';
         const label = spread >= 0 ? 'Normal' : 'Inverted';
@@ -155,7 +143,7 @@
         el.textContent = `${spread}%`;
         changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${label}</span>`;
       } catch (err) {
-        console.error("Error scraping yield curve spread:", err);
+        console.error("Error fetching yield spread:", err);
         el.textContent = 'Error';
         changeEl.textContent = '';
       }
@@ -163,7 +151,7 @@
 
     fetchSP500();
     fetchVIX();
-    fetchYieldCurveSpread();
+    fetchYieldSpread();
   </script>
 </body>
 </html>
