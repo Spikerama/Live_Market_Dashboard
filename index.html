@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Daily Market Warning Dashboard</title>
+  <title>Market Warning Dashboard</title>
   <style>
     body {
       background-color: #111;
@@ -12,148 +12,73 @@
       margin: 0;
       padding: 2rem;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 2rem;
     }
     .card {
       background: #1a1a1a;
       border-radius: 16px;
       box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
-      padding: 1.5rem;
-      position: relative;
+      padding: 1rem;
     }
     .card h2 {
       font-size: 1rem;
-      margin-bottom: 0.5rem;
+      margin-bottom: 1rem;
       color: #0ff;
     }
-    .card .value {
-      font-size: 2rem;
-      font-weight: 600;
-    }
-    .card .change {
-      font-size: 1rem;
-      margin-top: 0.3rem;
-    }
-    .arrow-up {
-      color: #0f0;
-    }
-    .arrow-down {
-      color: #f00;
-    }
-    .spinner {
-      border: 4px solid rgba(255, 255, 255, 0.2);
-      border-top: 4px solid #0ff;
-      border-radius: 50%;
-      width: 24px;
-      height: 24px;
-      animation: spin 1s linear infinite;
-      display: inline-block;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    .tradingview-widget-container {
+      height: 300px;
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <h2>S&P 500 Index (via SPY)</h2>
-    <div class="value" id="sp500"><span class="spinner"></span></div>
-    <div class="change" id="sp500-change"></div>
+    <h2>S&P 500 Index</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_0&symbol=SP:SPX&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
   </div>
 
   <div class="card">
-    <h2>Volatility Index (via ^VIX)</h2>
-    <div class="value" id="vix"><span class="spinner"></span></div>
-    <div class="change" id="vix-change"></div>
+    <h2>Volatility Index (VIX)</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol=CBOE:VIX&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
   </div>
 
   <div class="card">
-    <h2>10Y-2Y Yield Curve Spread</h2>
-    <div class="value" id="yield-spread"><span class="spinner"></span></div>
-    <div class="change" id="yield-spread-change"></div>
+    <h2>10Y Treasury Yield</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_2&symbol=TVC:US10Y&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
   </div>
 
-  <script>
-    const apiKey = '26137bba624c4dcb9b5284ad1b234071';
+  <div class="card">
+    <h2>2Y Treasury Yield</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_3&symbol=TVC:US02Y&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
+  </div>
 
-    async function fetchQuote(symbol) {
-      const url = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbol)}?apikey=${apiKey}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
-      const json = await res.json();
-      if (!Array.isArray(json) || !json[0] || typeof json[0].price !== 'number') throw new Error(`Invalid data for ${symbol}`);
-      return json[0];
-    }
+  <div class="card">
+    <h2>TSLA Stock Price</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_4&symbol=NASDAQ:TSLA&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
+  </div>
 
-    async function fetchSP500() {
-      const el = document.getElementById("sp500");
-      const changeEl = document.getElementById("sp500-change");
-      try {
-        const json = await fetchQuote("SPY");
-        const price = json.price.toFixed(2);
-        const percentChange = json.changesPercentage.toFixed(2);
-        const arrow = percentChange >= 0 ? '▲' : '▼';
-        const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
+  <div class="card">
+    <h2>ACDC ETF Price</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_5&symbol=ASX:ACDC&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
+  </div>
 
-        el.textContent = price;
-        changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
-      } catch (err) {
-        console.error("Error fetching S&P 500:", err);
-        el.textContent = 'Error';
-        changeEl.textContent = '';
-      }
-    }
-
-    async function fetchVIX() {
-      const el = document.getElementById("vix");
-      const changeEl = document.getElementById("vix-change");
-      try {
-        const json = await fetchQuote("^VIX");
-        const price = json.price.toFixed(2);
-        const percentChange = json.changesPercentage.toFixed(2);
-        const arrow = percentChange >= 0 ? '▲' : '▼';
-        const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
-
-        el.textContent = price;
-        changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
-      } catch (err) {
-        console.error("Error fetching VIX:", err);
-        el.textContent = 'Error';
-        changeEl.textContent = '';
-      }
-    }
-
-    async function fetchYieldSpread() {
-      const el = document.getElementById("yield-spread");
-      const changeEl = document.getElementById("yield-spread-change");
-      try {
-        const tenYData = await fetchQuote("US10Y");
-        const twoYData = await fetchQuote("US2Y");
-
-        const tenY = parseFloat(tenYData.price);
-        const twoY = parseFloat(twoYData.price);
-
-        if (!isFinite(tenY) || !isFinite(twoY)) throw new Error("Invalid yield values");
-
-        const spread = (tenY - twoY).toFixed(2);
-        const arrow = spread >= 0 ? '▲' : '▼';
-        const arrowClass = spread >= 0 ? 'arrow-up' : 'arrow-down';
-        const label = spread >= 0 ? 'Normal' : 'Inverted';
-
-        el.textContent = `${spread}%`;
-        changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${label}</span>`;
-      } catch (err) {
-        console.error("Error fetching yield spread:", err);
-        el.textContent = 'Error';
-        changeEl.textContent = '';
-      }
-    }
-
-    fetchSP500();
-    fetchVIX();
-    fetchYieldSpread();
-  </script>
+  <div class="card">
+    <h2>AUD/USD Exchange Rate</h2>
+    <div class="tradingview-widget-container">
+      <iframe src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_6&symbol=FX_IDC:AUDUSD&interval=D&theme=dark" width="100%" height="300" frameborder="0"></iframe>
+    </div>
+  </div>
 </body>
 </html>
