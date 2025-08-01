@@ -83,6 +83,7 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
       const json = await res.json();
+      if (!json || json.status === "error") throw new Error(`Invalid data for ${symbol}`);
       return json;
     }
 
@@ -128,8 +129,8 @@
       const el = document.getElementById("yield-spread");
       const changeEl = document.getElementById("yield-spread-change");
       try {
-        const tenY = await fetchQuote("US10Y:XNAS");
-        const twoY = await fetchQuote("US2Y:XNAS");
+        const tenY = await fetchQuote("US10Y");
+        const twoY = await fetchQuote("US2Y");
 
         const val10 = parseFloat(tenY.close);
         const val2 = parseFloat(twoY.close);
