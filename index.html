@@ -20,6 +20,7 @@
       border-radius: 16px;
       box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
       padding: 1.5rem;
+      position: relative;
     }
     .card h2 {
       font-size: 1rem;
@@ -30,19 +31,45 @@
       font-size: 2rem;
       font-weight: 600;
     }
+    .card .change {
+      font-size: 1rem;
+      margin-top: 0.3rem;
+    }
+    .arrow-up {
+      color: #0f0;
+    }
+    .arrow-down {
+      color: #f00;
+    }
+    .spinner {
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top: 4px solid #0ff;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>S&P 500 Index (via SPY)</h2>
-    <div class="value" id="sp500">Loading...</div>
+    <div class="value" id="sp500"><span class="spinner"></span></div>
+    <div class="change" id="sp500-change"></div>
   </div>
 
   <script>
     async function fetchSP500() {
       const el = document.getElementById("sp500");
+      const changeEl = document.getElementById("sp500-change");
+
       try {
-        const response = await fetch("https://api.twelvedata.com/price?symbol=SPY&apikey=26137bba624c4dcb9b5284ad1b234071");
+        const response = await fetch("https://api.twelvedata.com/quote?symbol=SPY&apikey=26137bba624c4dcb9b5284ad1b234071");
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -50,14 +77,22 @@
 
         const json = await response.json();
 
-        if (!json || typeof json.price !== 'string') {
+        if (!json || typeof json.close !== 'string' || typeof json.percent_change !== 'string') {
           throw new Error("Unexpected API response format.");
         }
 
-        el.textContent = parseFloat(json.price).toFixed(2);
+        const price = parseFloat(json.close).toFixed(2);
+        const percentChange = parseFloat(json.percent_change).toFixed(2);
+        const arrow = percentChange >= 0 ? '▲' : '▼';
+        const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
+
+        el.textContent = price;
+        changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
+
       } catch (err) {
         console.error("Error fetching S&P 500:", err);
         el.textContent = 'Error';
+        changeEl.textContent = '';
       }
     }
 
