@@ -129,18 +129,23 @@
       const changeEl = document.getElementById("yield-spread-change");
 
       try {
-        const [tenYRes, twoYRes] = await Promise.all([
-          fetch("https://api.twelvedata.com/quote?symbol=US10Y&apikey=26137bba624c4dcb9b5284ad1b234071"),
-          fetch("https://api.twelvedata.com/quote?symbol=US02Y&apikey=26137bba624c4dcb9b5284ad1b234071")
-        ]);
+        const res = await fetch("https://www.marketwatch.com/investing/bond/10_year?mod=over_search");
+        const text = await res.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'text/html');
 
-        const tenYData = await tenYRes.json();
-        const twoYData = await twoYRes.json();
+        const tenYText = doc.querySelector('[data-field="Last"]')?.textContent;
 
-        const tenY = parseFloat(tenYData.close);
-        const twoY = parseFloat(twoYData.close);
+        const res2 = await fetch("https://www.marketwatch.com/investing/bond/2_year?mod=over_search");
+        const text2 = await res2.text();
+        const doc2 = parser.parseFromString(text2, 'text/html');
 
-        if (!isFinite(tenY) || !isFinite(twoY)) throw new Error("Invalid yield values");
+        const twoYText = doc2.querySelector('[data-field="Last"]')?.textContent;
+
+        const tenY = parseFloat(tenYText);
+        const twoY = parseFloat(twoYText);
+
+        if (!isFinite(tenY) || !isFinite(twoY)) throw new Error("Invalid yield values scraped");
 
         const spread = (tenY - twoY).toFixed(2);
         const arrow = spread >= 0 ? '▲' : '▼';
@@ -149,9 +154,8 @@
 
         el.textContent = `${spread}%`;
         changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${label}</span>`;
-
       } catch (err) {
-        console.error("Error fetching yield curve spread:", err);
+        console.error("Error scraping yield curve spread:", err);
         el.textContent = 'Error';
         changeEl.textContent = '';
       }
