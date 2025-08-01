@@ -83,7 +83,7 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
       const json = await res.json();
-      if (!json || json.status === "error" || !json.close) throw new Error(`Invalid data for ${symbol}`);
+      if (!json || json.status === "error" || !json.close || isNaN(json.close)) throw new Error(`Invalid data for ${symbol}`);
       return json;
     }
 
