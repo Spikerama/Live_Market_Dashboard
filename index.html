@@ -145,9 +145,10 @@
         const spread = (tenY - twoY).toFixed(2);
         const arrow = spread >= 0 ? '▲' : '▼';
         const arrowClass = spread >= 0 ? 'arrow-up' : 'arrow-down';
+        const label = spread >= 0 ? 'Normal' : 'Inverted';
 
         el.textContent = `${spread}%`;
-        changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${spread >= 0 ? 'Normal' : 'Inverted'}</span>`;
+        changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${label}</span>`;
 
       } catch (err) {
         console.error("Error fetching yield curve spread:", err);
