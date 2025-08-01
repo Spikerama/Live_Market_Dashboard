@@ -83,7 +83,7 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
       const json = await res.json();
-      if (!Array.isArray(json) || !json[0] || isNaN(json[0].price)) throw new Error(`Invalid data for ${symbol}`);
+      if (!Array.isArray(json) || !json[0] || typeof json[0].price !== 'number') throw new Error(`Invalid data for ${symbol}`);
       return json[0];
     }
 
@@ -92,8 +92,8 @@
       const changeEl = document.getElementById("sp500-change");
       try {
         const json = await fetchQuote("SPY");
-        const price = parseFloat(json.price).toFixed(2);
-        const percentChange = parseFloat(json.changesPercentage).toFixed(2);
+        const price = json.price.toFixed(2);
+        const percentChange = json.changesPercentage.toFixed(2);
         const arrow = percentChange >= 0 ? '▲' : '▼';
         const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
 
@@ -111,15 +111,15 @@
       const changeEl = document.getElementById("vix-change");
       try {
         const json = await fetchQuote("^VIX");
-        const price = parseFloat(json.price).toFixed(2);
-        const percentChange = parseFloat(json.changesPercentage).toFixed(2);
+        const price = json.price.toFixed(2);
+        const percentChange = json.changesPercentage.toFixed(2);
         const arrow = percentChange >= 0 ? '▲' : '▼';
         const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
 
         el.textContent = price;
         changeEl.innerHTML = `<span class="${arrowClass}">${arrow} ${percentChange}%</span>`;
       } catch (err) {
-        console.error("Error fetching VIX proxy:", err);
+        console.error("Error fetching VIX:", err);
         el.textContent = 'Error';
         changeEl.textContent = '';
       }
@@ -129,15 +129,15 @@
       const el = document.getElementById("yield-spread");
       const changeEl = document.getElementById("yield-spread-change");
       try {
-        const tenY = await fetchQuote("US10Y");
-        const twoY = await fetchQuote("US2Y");
+        const tenYData = await fetchQuote("US10Y");
+        const twoYData = await fetchQuote("US2Y");
 
-        const val10 = parseFloat(tenY.price);
-        const val2 = parseFloat(twoY.price);
+        const tenY = parseFloat(tenYData.price);
+        const twoY = parseFloat(twoYData.price);
 
-        if (!isFinite(val10) || !isFinite(val2)) throw new Error("Bad yield values");
+        if (!isFinite(tenY) || !isFinite(twoY)) throw new Error("Invalid yield values");
 
-        const spread = (val10 - val2).toFixed(2);
+        const spread = (tenY - twoY).toFixed(2);
         const arrow = spread >= 0 ? '▲' : '▼';
         const arrowClass = spread >= 0 ? 'arrow-up' : 'arrow-down';
         const label = spread >= 0 ? 'Normal' : 'Inverted';
