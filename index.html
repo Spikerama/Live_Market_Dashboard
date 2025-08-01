@@ -83,7 +83,7 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
       const json = await res.json();
-      if (!json || json.status === "error") throw new Error(`Invalid data for ${symbol}`);
+      if (!json || json.status === "error" || !json.close) throw new Error(`Invalid data for ${symbol}`);
       return json;
     }
 
@@ -130,10 +130,11 @@
       const changeEl = document.getElementById("yield-spread-change");
       try {
         const tenY = await fetchQuote("US10Y");
-        const twoY = await fetchQuote("US2Y");
+        const twoY = await fetchQuote("US02Y");
 
         const val10 = parseFloat(tenY.close);
         const val2 = parseFloat(twoY.close);
+
         if (!isFinite(val10) || !isFinite(val2)) throw new Error("Bad yield values");
 
         const spread = (val10 - val2).toFixed(2);
