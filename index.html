@@ -81,32 +81,24 @@
       const symbolMap = {
         "^GSPC": "sp500",
         "^TNX": "tnx",
-        "AUDUSD": "audusd",
+        "AUDUSD=X": "audusd",
         "TSLA": "tsla"
       };
 
-      const query = Object.keys(symbolMap).join(',');
-      const url = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(query)}?apikey=demo`;
-
-      try {
-        const response = await fetch(url);
-        const data = await response.json();
-
-        for (const quote of data) {
-          const id = symbolMap[quote.symbol];
-          const element = document.getElementById(id);
-          if (element && typeof quote.price === 'number') {
-            element.textContent = quote.price.toFixed(2);
-          } else if (element) {
-            element.textContent = 'N/A';
-          }
+      for (const [symbol, elementId] of Object.entries(symbolMap)) {
+        try {
+          const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+          const json = await response.json();
+          const result = json?.quoteResponse?.result?.[0];
+          const value = result?.regularMarketPrice;
+          document.getElementById(elementId).textContent =
+            typeof value === 'number' ? value.toFixed(2) : 'N/A';
+        } catch (error) {
+          console.error(`Error fetching data for ${symbol}:`, error);
+          document.getElementById(elementId).textContent = 'Error';
         }
-      } catch (error) {
-        console.error("Error fetching market data:", error);
-        Object.values(symbolMap).forEach(id => {
-          const element = document.getElementById(id);
-          if (element) element.textContent = 'Error';
-        });
       }
     }
 
