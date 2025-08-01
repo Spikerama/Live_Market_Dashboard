@@ -64,7 +64,7 @@
   </div>
 
   <div class="card">
-    <h2>Volatility Index (via VIXY)</h2>
+    <h2>Volatility Index (via ^VIX)</h2>
     <div class="value" id="vix"><span class="spinner"></span></div>
     <div class="change" id="vix-change"></div>
   </div>
@@ -79,12 +79,12 @@
     const apiKey = '26137bba624c4dcb9b5284ad1b234071';
 
     async function fetchQuote(symbol) {
-      const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${apiKey}`;
+      const url = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbol)}?apikey=${apiKey}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
       const json = await res.json();
-      if (!json || json.status === "error" || !json.close || isNaN(json.close)) throw new Error(`Invalid data for ${symbol}`);
-      return json;
+      if (!Array.isArray(json) || !json[0] || isNaN(json[0].price)) throw new Error(`Invalid data for ${symbol}`);
+      return json[0];
     }
 
     async function fetchSP500() {
@@ -92,8 +92,8 @@
       const changeEl = document.getElementById("sp500-change");
       try {
         const json = await fetchQuote("SPY");
-        const price = parseFloat(json.close).toFixed(2);
-        const percentChange = parseFloat(json.percent_change).toFixed(2);
+        const price = parseFloat(json.price).toFixed(2);
+        const percentChange = parseFloat(json.changesPercentage).toFixed(2);
         const arrow = percentChange >= 0 ? '▲' : '▼';
         const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
 
@@ -110,9 +110,9 @@
       const el = document.getElementById("vix");
       const changeEl = document.getElementById("vix-change");
       try {
-        const json = await fetchQuote("VIXY");
-        const price = parseFloat(json.close).toFixed(2);
-        const percentChange = parseFloat(json.percent_change).toFixed(2);
+        const json = await fetchQuote("^VIX");
+        const price = parseFloat(json.price).toFixed(2);
+        const percentChange = parseFloat(json.changesPercentage).toFixed(2);
         const arrow = percentChange >= 0 ? '▲' : '▼';
         const arrowClass = percentChange >= 0 ? 'arrow-up' : 'arrow-down';
 
@@ -130,10 +130,10 @@
       const changeEl = document.getElementById("yield-spread-change");
       try {
         const tenY = await fetchQuote("US10Y");
-        const twoY = await fetchQuote("US02Y");
+        const twoY = await fetchQuote("US2Y");
 
-        const val10 = parseFloat(tenY.close);
-        const val2 = parseFloat(twoY.close);
+        const val10 = parseFloat(tenY.price);
+        const val2 = parseFloat(twoY.price);
 
         if (!isFinite(val10) || !isFinite(val2)) throw new Error("Bad yield values");
 
