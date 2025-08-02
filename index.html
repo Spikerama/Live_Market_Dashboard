@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Market Warning Dashboard</title>
   <style>
     body {
@@ -21,6 +21,7 @@
       box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
       padding: 1.5rem;
       text-align: center;
+      position: relative;
     }
     .card h2 {
       font-size: 1rem;
@@ -33,6 +34,7 @@
     }
     .change {
       font-size: 1rem;
+      margin-top: 4px;
     }
     .up {
       color: #0f0;
@@ -40,77 +42,205 @@
     .down {
       color: #f00;
     }
-    .loading {
-      color: #888;
+    .stale {
+      opacity: 0.6;
+      font-size: 0.75rem;
+      margin-top: 4px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 3px solid rgba(255,255,255,0.2);
+      border-top: 3px solid #0ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .label {
+      display: block;
+      margin-top: 6px;
+      font-size: 0.9rem;
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <h2>S&P 500 Index</h2>
-    <div class="value" id="sp500">Loading...</div>
+    <h2>S&P 500 Index (via SPY)</h2>
+    <div class="value" id="sp500">-- <span id="sp500-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="sp500-change"></div>
+    <div class="stale" id="sp500-stale" style="display:none;">Using cached value (fetch failed)</div>
   </div>
   <div class="card">
-    <h2>Volatility Index (VIX)</h2>
-    <div class="value" id="vix">Loading...</div>
+    <h2>Volatility Index (via VIXY)</h2>
+    <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="vix-change"></div>
+    <div class="stale" id="vix-stale" style="display:none;">Using cached value (fetch failed)</div>
   </div>
   <div class="card">
     <h2>10Y - 2Y Yield Curve Spread</h2>
-    <div class="value" id="yield">Loading...</div>
+    <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="yield-change"></div>
+    <div class="label" id="yield-label"></div>
+    <div class="stale" id="yield-stale" style="display:none;">Using cached value (fetch failed)</div>
   </div>
 
   <script>
-    async function fetchQuote(symbol) {
-      const url = `https://api.marketdataapi.dev/v1/quote?symbol=${symbol}&api_token=demo`;
-      try {
-        const res = await fetch(url);
-        const json = await res.json();
-        const data = json.data?.[symbol];
-        if (!data) throw new Error("Invalid data for " + symbol);
-        return data;
-      } catch (error) {
-        console.error("Error fetching", symbol + ":", error);
-        return null;
+    const API_KEY = '26137bba624c4dcb9b5284ad1b234071'; // replace if you rotate
+    const BASE = 'https://api.twelvedata.com/quote';
+
+    // generic fetch with retry/backoff
+    async function fetchWithRetry(url, attempts = 3, delay = 500) {
+      for (let i = 0; i < attempts; i++) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          return json;
+        } catch (e) {
+          if (i === attempts - 1) throw e;
+          await new Promise(r => setTimeout(r, delay * (i + 1)));
+        }
       }
     }
 
-    function updateCard(id, value, change) {
-      const el = document.getElementById(id);
-      const chg = document.getElementById(id + "-change");
-      if (!value) {
-        el.textContent = "Error";
-        chg.textContent = "";
+    async function getQuote(symbol) {
+      const url = `${BASE}?symbol=${encodeURIComponent(symbol)}&apikey=${API_KEY}`;
+      const data = await fetchWithRetry(url);
+      // Twelve Data returns object with fields like close, percent_change etc.
+      if (!data || data.status === 'error' || typeof data.close === 'undefined') {
+        throw new Error(`Bad data for ${symbol}`);
+      }
+      return data;
+    }
+
+    function setCached(id, valueObj) {
+      try { localStorage.setItem(id, JSON.stringify({ data: valueObj, ts: Date.now() })); } catch {}
+    }
+    function getCached(id) {
+      try {
+        const raw = localStorage.getItem(id);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch { return null; }
+    }
+
+    function formatChange(pct) {
+      const sign = pct >= 0 ? '+' : '';
+      return `${sign}${parseFloat(pct).toFixed(2)}%`;
+    }
+
+    function updateCard(id, price, pct, useCache=false) {
+      const valEl = document.getElementById(id);
+      const changeEl = document.getElementById(id + '-change');
+      const staleEl = document.getElementById(id + '-stale');
+      if (price === null || typeof price === 'undefined' || isNaN(price)) {
+        valEl.textContent = 'Error';
+        changeEl.textContent = '';
+        if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
         return;
       }
-      el.textContent = value.toFixed(2);
-      if (change !== undefined) {
-        const pct = (change >= 0 ? "+" : "") + change.toFixed(2) + "%";
-        chg.textContent = pct;
-        chg.className = "change " + (change >= 0 ? "up" : "down");
+      valEl.textContent = parseFloat(price).toFixed(2);
+      if (pct !== undefined && changeEl) {
+        changeEl.textContent = formatChange(pct);
+        changeEl.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      }
+      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
+    }
+
+    async function refreshSP500() {
+      const spinner = document.getElementById('sp500-spinner');
+      spinner.style.display = 'inline-block';
+      let usedCache = false;
+      try {
+        const data = await getQuote('SPY');
+        const price = parseFloat(data.close);
+        const pct = parseFloat(data.percent_change);
+        updateCard('sp500', price, pct, false);
+        setCached('sp500', { price, pct });
+      } catch (err) {
+        console.error('SP500 fetch failed:', err);
+        const cached = getCached('sp500');
+        if (cached && cached.data) {
+          usedCache = true;
+          updateCard('sp500', cached.data.price, cached.data.pct, true);
+        } else {
+          updateCard('sp500', null, null, false);
+        }
+      } finally {
+        spinner.style.display = 'none';
       }
     }
 
-    async function updateDashboard() {
-      const sp500 = await fetchQuote("SPY");
-      updateCard("sp500", sp500?.price, sp500?.change_percent);
-
-      const vix = await fetchQuote("VIXY");
-      updateCard("vix", vix?.price, vix?.change_percent);
-
-      const us10y = await fetchQuote("US10Y");
-      const us2y = await fetchQuote("US2Y");
-      if (us10y && us2y) {
-        const spread = us10y.price - us2y.price;
-        updateCard("yield", spread, spread);
-      } else {
-        updateCard("yield", null);
+    async function refreshVIX() {
+      const spinner = document.getElementById('vix-spinner');
+      spinner.style.display = 'inline-block';
+      let usedCache = false;
+      try {
+        const data = await getQuote('VIXY');
+        const price = parseFloat(data.close);
+        const pct = parseFloat(data.percent_change);
+        updateCard('vix', price, pct, false);
+        setCached('vix', { price, pct });
+      } catch (err) {
+        console.error('VIX fetch failed:', err);
+        const cached = getCached('vix');
+        if (cached && cached.data) {
+          usedCache = true;
+          updateCard('vix', cached.data.price, cached.data.pct, true);
+        } else {
+          updateCard('vix', null, null, false);
+        }
+      } finally {
+        spinner.style.display = 'none';
       }
     }
 
-    updateDashboard();
+    async function refreshYieldCurve() {
+      const spinner = document.getElementById('yield-spinner');
+      spinner.style.display = 'inline-block';
+      try {
+        const tenY = await getQuote('US10Y');
+        const twoY = await getQuote('US2Y');
+        const val10 = parseFloat(tenY.close);
+        const val2 = parseFloat(twoY.close);
+        if (!isFinite(val10) || !isFinite(val2)) throw new Error('Invalid yield values');
+        const spread = val10 - val2;
+        const labelEl = document.getElementById('yield-label');
+        const isInverted = spread < 0;
+        labelEl.textContent = isInverted ? 'Inverted' : 'Normal';
+        updateCard('yield', spread, spread, false);
+        setCached('yield', { spread, inverted: isInverted });
+      } catch (err) {
+        console.error('Yield spread fetch failed:', err);
+        const cached = getCached('yield');
+        if (cached && cached.data) {
+          document.getElementById('yield-label').textContent = cached.data.inverted ? 'Inverted' : 'Normal';
+          updateCard('yield', cached.data.spread, cached.data.spread, true);
+        } else {
+          updateCard('yield', null, null, false);
+          document.getElementById('yield-label').textContent = '';
+        }
+      } finally {
+        spinner.style.display = 'none';
+      }
+    }
+
+    // initial load
+    refreshSP500();
+    refreshVIX();
+    refreshYieldCurve();
+
+    // auto refresh every 2 minutes
+    setInterval(() => {
+      refreshSP500();
+      refreshVIX();
+      refreshYieldCurve();
+    }, 120000);
   </script>
 </body>
 </html>
