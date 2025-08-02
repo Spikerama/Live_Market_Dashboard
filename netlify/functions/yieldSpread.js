@@ -1,5 +1,3 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fn }) => fn(...args));
-
 const FRED_KEY = process.env.FRED_KEY || 'a5d70f8bbdfae3f817b5fadc98de8e8c';
 
 async function getLatestValid(seriesId) {
@@ -32,7 +30,7 @@ exports.handler = async function () {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*', // critical so browser can read it
+        'Access-Control-Allow-Origin': '*',
       },
       body: JSON.stringify({
         spread,
