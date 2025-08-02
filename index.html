@@ -78,6 +78,13 @@
     <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="yield-updated">Updated: --</div>
   </div>
+  <div class="card">
+    <h2>Buffett Indicator (Market Cap / GDP)</h2>
+    <div class="value" id="buffett">-- <span id="buffett-spinner" class="spinner" style="display:none;"></span></div>
+    <div class="change" id="buffett-change"></div><div class="badge" id="buffett-status">--</div>
+    <div class="stale" id="buffett-stale" style="display:none;">Using cached value</div>
+    <div class="timestamp" id="buffett-updated">Updated: --</div>
+  </div>
 
   <script>
     const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // still used for SPY and VIXY
@@ -221,11 +228,63 @@
       } finally { spinner.style.display = 'none'; }
     }
 
+    async function refreshBuffett() {
+      const spinner = document.getElementById('buffett-spinner');
+      spinner.style.display = 'inline-block';
+      try {
+        const res = await fetch('/.netlify/functions/buffett');
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        const ratio = json.ratio;
+        const overvalued = json.overvalued;
+        const valEl = document.getElementById('buffett');
+        const changeEl = document.getElementById('buffett-change');
+        const statusEl = document.getElementById('buffett-status');
+        const staleEl = document.getElementById('buffett-stale');
+        const updatedEl = document.getElementById('buffett-updated');
+        valEl.textContent = `${ratio.toFixed(2)}%`;
+        changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
+        changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+        staleEl.style.display = 'none';
+        updatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        if (statusEl) { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+        cacheSet('buffett', { ratio: json.ratio, overvalued: json.overvalued });
+      } catch (e) {
+        console.error('Buffett indicator failed:', e);
+        const cached = cacheGet('buffett');
+        const valEl = document.getElementById('buffett');
+        const changeEl = document.getElementById('buffett-change');
+        const statusEl = document.getElementById('buffett-status');
+        const staleEl = document.getElementById('buffett-stale');
+        const updatedEl = document.getElementById('buffett-updated');
+        if (cached?.data) {
+          const ratio = cached.data.ratio;
+          const overvalued = cached.data.overvalued;
+          valEl.textContent = `${ratio.toFixed(2)}%`;
+          changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
+          changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+          staleEl.style.display = 'block';
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          updatedEl.textContent = 'Updated: ' + ts + ' (cached)';
+          if (statusEl) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          valEl.textContent='Error';
+          changeEl.textContent='';
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+          staleEl.style.display='none';
+          updatedEl.textContent='Updated: --';
+        }
+      } finally {
+        spinner.style.display='none';
+      }
+    }
+
     // boot
     refreshSPY();
     refreshVIX();
     refreshYieldCurve();
-    setInterval(() => { refreshSPY(); refreshVIX(); refreshYieldCurve(); }, 120000);
+    refreshBuffett();
+    setInterval(() => { refreshSPY(); refreshVIX(); refreshYieldCurve(); refreshBuffett(); }, 120000);
   </script>
 </body>
 </html>
