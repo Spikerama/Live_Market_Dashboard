@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Market Warning Dashboard</title>
   <style>
     body {
@@ -12,37 +12,32 @@
       margin: 0;
       padding: 2rem;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 2rem;
     }
     .card {
       background: #1a1a1a;
-      border-radius: 14px;
-      padding: 1.25rem;
-      box-shadow: 0 0 12px rgba(0,255,255,0.07);
-      position: relative;
+      border-radius: 16px;
+      box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
+      padding: 1.5rem;
       text-align: center;
     }
     .card h2 {
       font-size: 1rem;
-      margin: 0 0 .4rem;
+      margin-bottom: 0.5rem;
       color: #0ff;
     }
     .value {
-      font-size: 1.8rem;
-      font-weight: 600;
+      font-size: 2rem;
+      font-weight: bold;
     }
     .change {
-      font-size: .9rem;
+      font-size: 1rem;
       margin-top: 4px;
     }
     .up { color: #0f0; }
     .down { color: #f55; }
-    .stale {
-      font-size: .65rem;
-      opacity: .6;
-      margin-top: 4px;
-    }
+    .stale { font-size: .65rem; opacity: .6; margin-top: 4px; }
     .spinner {
       display: inline-block;
       width: 14px;
@@ -64,14 +59,12 @@
     <div class="change" id="sp500-change"></div>
     <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
   </div>
-
   <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="vix-change"></div>
     <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
   </div>
-
   <div class="card">
     <h2>10Y − 2Y Yield Curve Spread</h2>
     <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
@@ -83,15 +76,9 @@
     const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
     const FRED_KEY = 'a5d70f8bbdfae3f817b5fadc98de8e8c';
 
-    // simple caching
-    function cacheSet(key, obj) {
-      try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); } catch {}
-    }
-    function cacheGet(key) {
-      try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
-    }
+    function cacheSet(key, obj) { try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); } catch {} }
+    function cacheGet(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
 
-    // retry wrapper
     async function fetchWithRetry(url, attempts = 3, baseDelay = 300) {
       for (let i = 0; i < attempts; i++) {
         try {
@@ -108,9 +95,7 @@
     async function getTwelveQuote(symbol) {
       const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY}`;
       const json = await fetchWithRetry(url);
-      if (!json || json.status === 'error' || typeof json.close === 'undefined') {
-        throw new Error(`Bad data for ${symbol}`);
-      }
+      if (!json || json.status === 'error' || typeof json.close === 'undefined') throw new Error(`Bad data for ${symbol}`);
       return json;
     }
 
@@ -141,7 +126,7 @@
         return;
       }
       valEl.textContent = parseFloat(value).toFixed(2);
-      if (change !== undefined && change !== null) {
+      if (typeof change === 'number') {
         const arrow = change >= 0 ? '▲' : '▼';
         changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
         changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
@@ -183,8 +168,10 @@
           setCard('sp500', cached.data.price, cached.data.pct, true);
         } else {
           setCard('sp500', null, null, false);
+        }
+      } finally {
+        spinner.style.display = 'none';
       }
-    } finally { spinner.style.display = 'none'; }
     }
 
     async function refreshVIX() {
@@ -201,7 +188,46 @@
         const cached = cacheGet('vix');
         if (cached?.data) {
           setCard('vix', cached.data.price, cached.data.pct, true);
-We need to continue or answer. The user: "Where have you fixed it? You didn't give me the new HTML" They have canvas doc showing previous code; we need to update canvas with final working code? They want fix yield curve; we have partial code cut. Need to finish the code so it works. Provide complete HTML including close braces. Provide modifications: yield curve refresh function, call intervals. Need to ensure code has no syntax errors; existing cut off at end: after refreshVIX truncated. We will update canvas to complete script including refreshYieldCurve function, initial calls, etc. Provide final answer explanation. Let's send update_textdoc with complete HTML. We'll reconstruct full working code from prior message including yield curve retrieval using FRED, plus SPY/VIXY. Need to close try/catch in refreshSPY (currently mismatched). We'll write full code. Let's send update_textdoc with replacement of content with finished code.
+        } else {
+          setCard('vix', null, null, false);
+        }
+      } finally {
+        spinner.style.display = 'none';
+      }
+    }
 
+    async function refreshYieldCurve() {
+      const spinner = document.getElementById('yield-spinner');
+      spinner.style.display = 'inline-block';
+      try {
+        const tenY = await getFredLatest('DGS10');
+        const twoY = await getFredLatest('DGS2');
+        const spread = tenY - twoY;
+        setYield(spread, false);
+        cacheSet('yield', { spread, inverted: spread < 0 });
+      } catch (e) {
+        console.error('Yield curve error', e);
+        const cached = cacheGet('yield');
+        if (cached?.data) {
+          setYield(cached.data.spread, true);
+        } else {
+          setYield(null, false);
+        }
+      } finally {
+        spinner.style.display = 'none';
+      }
+    }
 
-::contentReference[oaicite:0]{index=0}
+    // initial
+    refreshSPY();
+    refreshVIX();
+    refreshYieldCurve();
+    // auto-refresh
+    setInterval(() => {
+      refreshSPY();
+      refreshVIX();
+      refreshYieldCurve();
+    }, 120000);
+  </script>
+</body>
+</html>
