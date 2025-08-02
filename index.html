@@ -73,8 +73,7 @@
   </div>
 
   <script>
-    const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
-    const FRED_KEY = 'a5d70f8bbdfae3f817b5fadc98de8e8c';
+    const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // still used for SPY and VIXY
 
     function cacheSet(key, obj) { try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); } catch {} }
     function cacheGet(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
@@ -99,22 +98,6 @@
       return json;
     }
 
-    async function getFredLatest(seriesId) {
-      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
-      const json = await fetchWithRetry(url);
-      const obs = json?.observations;
-      if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No FRED data for ${seriesId}`);
-      let val = NaN;
-      for (const o of obs) {
-        const v = o.value;
-        if (v === '.' || v === null || v === undefined) continue;
-        const parsed = parseFloat(v);
-        if (!isNaN(parsed)) { val = parsed; break; }
-      }
-      if (!isFinite(val)) throw new Error(`Invalid FRED values for ${seriesId}`);
-      return val;
-    }
-
     function setCard(id, value, change, useCache = false) {
       const valEl = document.getElementById(id);
       const changeEl = document.getElementById(id + '-change');
@@ -131,24 +114,6 @@
         changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
         changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
       }
-      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
-    }
-
-    function setYield(spread, useCache = false) {
-      const valEl = document.getElementById('yield');
-      const changeEl = document.getElementById('yield-change');
-      const staleEl = document.getElementById('yield-stale');
-      if (spread === null || spread === undefined || isNaN(spread)) {
-        valEl.textContent = 'Error';
-        if (changeEl) changeEl.textContent = '';
-        if (staleEl) staleEl.style.display = 'none';
-        return;
-      }
-      valEl.textContent = spread.toFixed(2) + '%';
-      const arrow = spread >= 0 ? '▲' : '▼';
-      const inverted = spread < 0;
-      changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
-      changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
       if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
     }
 
@@ -169,9 +134,7 @@
         } else {
           setCard('sp500', null, null, false);
         }
-      } finally {
-        spinner.style.display = 'none';
-      }
+      } finally { spinner.style.display = 'none'; }
     }
 
     async function refreshVIX() {
@@ -191,43 +154,51 @@
         } else {
           setCard('vix', null, null, false);
         }
-      } finally {
-        spinner.style.display = 'none';
-      }
+      } finally { spinner.style.display = 'none'; }
     }
 
+    // yield via Netlify function / serverless proxy to avoid CORS
     async function refreshYieldCurve() {
       const spinner = document.getElementById('yield-spinner');
       spinner.style.display = 'inline-block';
       try {
-        const tenY = await getFredLatest('DGS10');
-        const twoY = await getFredLatest('DGS2');
-        const spread = tenY - twoY;
-        setYield(spread, false);
-        cacheSet('yield', { spread, inverted: spread < 0 });
+        const res = await fetch('/.netlify/functions/yieldSpread');
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        const spread = json.spread;
+        const inverted = json.inverted;
+        const valEl = document.getElementById('yield');
+        const changeEl = document.getElementById('yield-change');
+        valEl.textContent = `${spread.toFixed(2)}%`;
+        const arrow = spread >= 0 ? '▲' : '▼';
+        changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
+        changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
+        cacheSet('yield', { spread, inverted });
+        document.getElementById('yield-stale').style.display = 'none';
       } catch (e) {
-        console.error('Yield curve error', e);
+        console.error('Yield curve fetch failed:', e);
         const cached = cacheGet('yield');
         if (cached?.data) {
-          setYield(cached.data.spread, true);
+          const spread = cached.data.spread;
+          const inverted = cached.data.inverted;
+          const valEl = document.getElementById('yield');
+          const changeEl = document.getElementById('yield-change');
+          valEl.textContent = `${spread.toFixed(2)}%`;
+          const arrow = spread >= 0 ? '▲' : '▼';
+          changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
+          changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
+          document.getElementById('yield-stale').style.display = 'block';
         } else {
-          setYield(null, false);
+          setCard('yield', null, null, false);
         }
-      } finally {
-        spinner.style.display = 'none';
-      }
+      } finally { spinner.style.display = 'none'; }
     }
 
-    // initial
+    // boot
     refreshSPY();
     refreshVIX();
     refreshYieldCurve();
-    // auto-refresh
-    setInterval(() => {
-      refreshSPY();
-      refreshVIX();
-      refreshYieldCurve();
-    }, 120000);
+    setInterval(() => { refreshSPY(); refreshVIX(); refreshYieldCurve(); }, 120000);
   </script>
 </body>
 </html>
