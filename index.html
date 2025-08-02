@@ -49,6 +49,7 @@
       vertical-align: middle;
       margin-left: 6px;
     }
+    .timestamp { font-size: .65rem; margin-top: 4px; opacity: .8; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -58,18 +59,21 @@
     <div class="value" id="sp500">-- <span id="sp500-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="sp500-change"></div>
     <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
+    <div class="timestamp" id="sp500-updated">Updated: --</div>
   </div>
   <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="vix-change"></div>
     <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
+    <div class="timestamp" id="vix-updated">Updated: --</div>
   </div>
   <div class="card">
     <h2>10Y − 2Y Yield Curve Spread</h2>
     <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="yield-change"></div>
     <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
+    <div class="timestamp" id="yield-updated">Updated: --</div>
   </div>
 
   <script>
@@ -126,13 +130,17 @@
         const pct = parseFloat(q.percent_change);
         setCard('sp500', price, pct, false);
         cacheSet('sp500', { price, pct });
+        document.getElementById('sp500-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
       } catch (e) {
         console.error('SPY error', e);
         const cached = cacheGet('sp500');
         if (cached?.data) {
           setCard('sp500', cached.data.price, cached.data.pct, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('sp500-updated').textContent = 'Updated: ' + ts + ' (cached)';
         } else {
           setCard('sp500', null, null, false);
+          document.getElementById('sp500-updated').textContent = 'Updated: --';
         }
       } finally { spinner.style.display = 'none'; }
     }
@@ -146,13 +154,17 @@
         const pct = parseFloat(q.percent_change);
         setCard('vix', price, pct, false);
         cacheSet('vix', { price, pct });
+        document.getElementById('vix-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
       } catch (e) {
         console.error('VIXY error', e);
         const cached = cacheGet('vix');
         if (cached?.data) {
           setCard('vix', cached.data.price, cached.data.pct, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('vix-updated').textContent = 'Updated: ' + ts + ' (cached)';
         } else {
           setCard('vix', null, null, false);
+          document.getElementById('vix-updated').textContent = 'Updated: --';
         }
       } finally { spinner.style.display = 'none'; }
     }
@@ -175,6 +187,7 @@
         changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
         cacheSet('yield', { spread, inverted });
         document.getElementById('yield-stale').style.display = 'none';
+        document.getElementById('yield-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
       } catch (e) {
         console.error('Yield curve fetch failed:', e);
         const cached = cacheGet('yield');
@@ -188,8 +201,11 @@
           changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
           changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
           document.getElementById('yield-stale').style.display = 'block';
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('yield-updated').textContent = 'Updated: ' + ts + ' (cached)';
         } else {
           setCard('yield', null, null, false);
+          document.getElementById('yield-updated').textContent = 'Updated: --';
         }
       } finally { spinner.style.display = 'none'; }
     }
