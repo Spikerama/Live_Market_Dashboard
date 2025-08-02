@@ -50,6 +50,9 @@
       margin-left: 6px;
     }
     .timestamp { font-size: .65rem; margin-top: 4px; opacity: .8; }
+    .badge {display:inline-block; padding:2px 6px; border-radius:8px; font-size:.65rem; font-weight:600; vertical-align:middle;}
+    .badge-live {background: #0f0; color: #000;}
+    .badge-cached {background: #555; color: #fff;}
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -57,21 +60,21 @@
   <div class="card">
     <h2>S&P 500 (SPY)</h2>
     <div class="value" id="sp500">-- <span id="sp500-spinner" class="spinner" style="display:none;"></span></div>
-    <div class="change" id="sp500-change"></div>
+    <div class="change" id="sp500-change"></div><div class="badge" id="sp500-status">--</div>
     <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="sp500-updated">Updated: --</div>
   </div>
   <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
-    <div class="change" id="vix-change"></div>
+    <div class="change" id="vix-change"></div><div class="badge" id="vix-status">--</div>
     <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-updated">Updated: --</div>
   </div>
   <div class="card">
     <h2>10Y − 2Y Yield Curve Spread</h2>
     <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
-    <div class="change" id="yield-change"></div>
+    <div class="change" id="yield-change"></div><div class="badge" id="yield-status">--</div>
     <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="yield-updated">Updated: --</div>
   </div>
@@ -106,12 +109,26 @@
       const valEl = document.getElementById(id);
       const changeEl = document.getElementById(id + '-change');
       const staleEl = document.getElementById(id + '-stale');
+      const statusEl = document.getElementById(id + '-status');
       if (value === null || value === undefined || isNaN(value)) {
         valEl.textContent = 'Error';
         if (changeEl) changeEl.textContent = '';
         if (staleEl) staleEl.style.display = 'none';
+        if (statusEl) { statusEl.textContent = 'ERROR'; statusEl.className='badge'; }
         return;
       }
+      valEl.textContent = parseFloat(value).toFixed(2);
+      if (typeof change === 'number') {
+        const arrow = change >= 0 ? '▲' : '▼';
+        changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
+        changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+      }
+      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
+      if (statusEl) {
+        if (useCache) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        else { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      }
+    }
       valEl.textContent = parseFloat(value).toFixed(2);
       if (typeof change === 'number') {
         const arrow = change >= 0 ? '▲' : '▼';
@@ -188,6 +205,8 @@
         cacheSet('yield', { spread, inverted });
         document.getElementById('yield-stale').style.display = 'none';
         document.getElementById('yield-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('yield-status');
+        if (statusEl) { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
       } catch (e) {
         console.error('Yield curve fetch failed:', e);
         const cached = cacheGet('yield');
@@ -203,9 +222,13 @@
           document.getElementById('yield-stale').style.display = 'block';
           const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
           document.getElementById('yield-updated').textContent = 'Updated: ' + ts + ' (cached)';
+          const statusEl = document.getElementById('yield-status');
+          if (statusEl) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
         } else {
           setCard('yield', null, null, false);
           document.getElementById('yield-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('yield-status');
+          if (statusEl) { statusEl.textContent='ERROR'; statusEl.className='badge'; }
         }
       } finally { spinner.style.display = 'none'; }
     }
