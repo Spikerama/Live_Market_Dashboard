@@ -124,18 +124,6 @@
         changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
       }
       if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
-      if (statusEl) {
-        if (useCache) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
-        else { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
-      }
-    }
-      valEl.textContent = parseFloat(value).toFixed(2);
-      if (typeof change === 'number') {
-        const arrow = change >= 0 ? '▲' : '▼';
-        changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
-        changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
-      }
-      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
     }
 
     async function refreshSPY() {
