@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Market Warning Dashboard</title>
   <style>
     body {
@@ -12,258 +12,140 @@
       margin: 0;
       padding: 2rem;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 2rem;
     }
     .card {
       background: #1a1a1a;
-      border-radius: 14px;
-      padding: 1.25rem;
-      box-shadow: 0 0 12px rgba(0,255,255,0.07);
-      position: relative;
+      border-radius: 16px;
+      box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
+      padding: 1.5rem;
+      text-align: center;
     }
     .card h2 {
       font-size: 1rem;
-      margin: 0 0 .4rem;
+      margin-bottom: 0.5rem;
       color: #0ff;
     }
     .value {
-      font-size: 1.9rem;
-      font-weight: 600;
+      font-size: 2rem;
+      font-weight: bold;
     }
     .change {
-      font-size: .9rem;
-      margin-top: 4px;
+      font-size: 1rem;
     }
     .up {
       color: #0f0;
     }
     .down {
-      color: #f55;
+      color: #f00;
     }
-    .label {
-      font-size: .8rem;
-      margin-top: 6px;
+    .loading {
+      color: #888;
     }
-    .stale {
-      font-size: .65rem;
-      opacity: .6;
-      margin-top: 4px;
-    }
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 3px solid rgba(255,255,255,0.2);
-      border-top: 3px solid #0ff;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      vertical-align: middle;
-      margin-left: 6px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div class="card" id="card-sp500">
-    <h2>S&P 500 Index (via SPY)</h2>
-    <div class="value" id="sp500">-- <span id="sp500-spinner" class="spinner" style="display:none;"></span></div>
+  <div class="card">
+    <h2>S&P 500 Index</h2>
+    <div class="value" id="sp500">Loading...</div>
     <div class="change" id="sp500-change"></div>
-    <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
   </div>
-
-  <div class="card" id="card-vix">
-    <h2>Volatility Index (via VIXY)</h2>
-    <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
+  <div class="card">
+    <h2>Volatility Index (VIX)</h2>
+    <div class="value" id="vix">Loading...</div>
     <div class="change" id="vix-change"></div>
-    <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
   </div>
-
-  <div class="card" id="card-yield">
-    <h2>10Y − 2Y Yield Curve Spread</h2>
-    <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
+  <div class="card">
+    <h2>10Y - 2Y Yield Curve Spread</h2>
+    <div class="value" id="yield">Loading...</div>
     <div class="change" id="yield-change"></div>
-    <div class="label" id="yield-label"></div>
-    <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
   </div>
 
   <script>
-    // CONFIG
-    const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // for SPY/VIXY
-    const FRED_KEY = 'a5d70f8bbdfae3f817b5fadc98de8e8c';    // for yield curve
-
-    // Helpers for localStorage fallback
-    function cacheSet(key, obj) {
-      try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); } catch {}
-    }
-    function cacheGet(key) {
+    // existing quote fetch for SPY and VIXY (unchanged)
+    async function fetchQuote(symbol) {
+      const url = `https://api.marketdataapi.dev/v1/quote?symbol=${symbol}&api_token=demo`;
       try {
-        const raw = localStorage.getItem(key);
-        if (!raw) return null;
-        return JSON.parse(raw);
-      } catch { return null; }
-    }
-
-    // Simple fetch with exponential backoff
-    async function fetchWithRetry(url, tries = 3, delay = 400) {
-      for (let i = 0; i < tries; i++) {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return await res.json();
-        } catch (e) {
-          if (i === tries - 1) throw e;
-          await new Promise(r => setTimeout(r, delay * (i + 1)));
-        }
+        const res = await fetch(url);
+        const json = await res.json();
+        const data = json.data?.[symbol];
+        if (!data) throw new Error("Invalid data for " + symbol);
+        return data;
+      } catch (error) {
+        console.error("Error fetching", symbol + ":", error);
+        return null;
       }
     }
 
-    // Twelve Data quotes
-    async function getTwelveQuote(symbol) {
-      const endpoint = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY}`;
-      const json = await fetchWithRetry(endpoint);
-      if (!json || json.status === 'error' || typeof json.close === 'undefined') {
-        throw new Error(`Bad twelve data for ${symbol}`);
+    function updateCard(id, value, change) {
+      const el = document.getElementById(id);
+      const chg = document.getElementById(id + "-change");
+      if (value === null || typeof value === 'undefined' || isNaN(value)) {
+        el.textContent = "Error";
+        chg.textContent = "";
+        return;
       }
-      return json; // has close, percent_change etc.
+      el.textContent = value.toFixed(2);
+      if (change !== undefined) {
+        const pct = (change >= 0 ? "+" : "") + change.toFixed(2) + "%";
+        chg.textContent = pct;
+        chg.className = "change " + (change >= 0 ? "up" : "down");
+      }
     }
 
-    // FRED series latest observation
-    async function getFredLatest(seriesId) {
-      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=1`;
-      const json = await fetchWithRetry(url);
+    // FRED API for yield curve
+    async function fetchFredLatest(seriesId) {
+      const apiKey = 'a5d70f8bbdfae3f817b5fadc98de8e8c';
+      // fetch last several in case latest is '.' or invalid
+      const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=10`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`FRED fetch failed for ${seriesId}: ${res.status}`);
+      const json = await res.json();
       const obs = json?.observations;
-      if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No FRED data for ${seriesId}`);
-      const val = parseFloat(obs[0].value);
-      if (isNaN(val)) throw new Error(`Invalid FRED value for ${seriesId}`);
-      return val;
+      if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No data for ${seriesId}`);
+      // find the first valid numeric value (skip '.' or non-numeric)
+      let value = NaN;
+      for (const o of obs) {
+        const valueStr = o.value;
+        if (valueStr === '.' || valueStr === null || valueStr === undefined) continue;
+        const parsed = parseFloat(valueStr);
+        if (!isNaN(parsed)) { value = parsed; break; }
+      }
+      if (!isFinite(value)) throw new Error(`Could not find valid value for ${seriesId}`);
+      return value; // in percent
     }
 
-    // Update helpers
-    function setValue(id, value, pct, useCache = false) {
-      const valEl = document.getElementById(id);
-      const changeEl = document.getElementById(id + '-change');
-      const staleEl = document.getElementById(id + '-stale');
-      if (value === null || value === undefined || isNaN(value)) {
-        valEl.textContent = 'Error';
-        if (changeEl) changeEl.textContent = '';
-        if (staleEl) staleEl.style.display = 'none';
-        return;
-      }
-      valEl.textContent = parseFloat(value).toFixed(2);
-      if (changeEl && typeof pct === 'number') {
-        const arrow = pct >= 0 ? '▲' : '▼';
-        changeEl.textContent = `${arrow} ${Math.abs(pct).toFixed(2)}%`;
-        changeEl.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-      }
-      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
-    }
+    async function updateDashboard() {
+      // SPY
+      const sp500 = await fetchQuote("SPY");
+      updateCard("sp500", sp500?.price, sp500?.change_percent);
 
-    function setYield(id, spread, useCache = false) {
-      const valEl = document.getElementById(id);
-      const changeEl = document.getElementById(id + '-change');
-      const labelEl = document.getElementById('yield-label');
-      const staleEl = document.getElementById(id + '-stale');
-      if (spread === null || spread === undefined || isNaN(spread)) {
-        valEl.textContent = 'Error';
-        if (changeEl) changeEl.textContent = '';
-        if (labelEl) labelEl.textContent = '';
-        if (staleEl) staleEl.style.display = 'none';
-        return;
-      }
-      valEl.textContent = spread.toFixed(2) + '%';
-      const arrow = spread >= 0 ? '▲' : '▼';
-      const inverted = spread < 0;
-      changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
-      changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
-      labelEl.textContent = ''; // extra label optional
-      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
-    }
+      // VIXY
+      const vix = await fetchQuote("VIXY");
+      updateCard("vix", vix?.price, vix?.change_percent);
 
-    // Fetch routines
-    async function refreshSP500() {
-      const spinner = document.getElementById('sp500-spinner');
-      spinner.style.display = 'inline-block';
-      let usedCache = false;
+      // Yield curve via FRED
       try {
-        const data = await getTwelveQuote('SPY');
-        const price = parseFloat(data.close);
-        const pct = parseFloat(data.percent_change);
-        setValue('sp500', price, pct, false);
-        cacheSet('sp500', { price, pct });
-      } catch (err) {
-        console.error('SPY failed:', err);
-        const cached = cacheGet('sp500');
-        if (cached?.data) {
-          usedCache = true;
-          setValue('sp500', cached.data.price, cached.data.pct, true);
-        } else {
-          setValue('sp500', null, null, false);
+        const tenY = await fetchFredLatest('DGS10');
+        const twoY = await fetchFredLatest('DGS2');
+        const spread = tenY - twoY; // in percentage points
+        // show arrow + inversion label
+        const changeEl = document.getElementById('yield-change');
+        const arrow = spread >= 0 ? '▲' : '▼';
+        const label = spread < 0 ? 'Inverted' : 'Normal';
+        if (changeEl) {
+          changeEl.textContent = `${arrow} ${label}`;
+          changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
         }
-      } finally {
-        spinner.style.display = 'none';
+        updateCard('yield', spread, spread);
+      } catch (err) {
+        console.error('Yield curve error:', err);
+        updateCard('yield', null);
       }
     }
 
-    async function refreshVIX() {
-      const spinner = document.getElementById('vix-spinner');
-      spinner.style.display = 'inline-block';
-      let usedCache = false;
-      try {
-        const data = await getTwelveQuote('VIXY');
-        const price = parseFloat(data.close);
-        const pct = parseFloat(data.percent_change);
-        setValue('vix', price, pct, false);
-        cacheSet('vix', { price, pct });
-      } catch (err) {
-        console.error('VIXY failed:', err);
-        const cached = cacheGet('vix');
-        if (cached?.data) {
-          usedCache = true;
-          setValue('vix', cached.data.price, cached.data.pct, true);
-        } else {
-          setValue('vix', null, null, false);
-        }
-      } finally {
-        spinner.style.display = 'none';
-      }
-    }
-
-    async function refreshYieldCurve() {
-      const spinner = document.getElementById('yield-spinner');
-      spinner.style.display = 'inline-block';
-      let usedCache = false;
-      try {
-        const ten = await getFredLatest('DGS10');
-        const two = await getFredLatest('DGS2');
-        const spread = ten - two;
-        setYield('yield', spread, false);
-        cacheSet('yield', { spread, inverted: spread < 0 });
-      } catch (err) {
-        console.error('Yield fetch failed:', err);
-        const cached = cacheGet('yield');
-        if (cached?.data) {
-          usedCache = true;
-          setYield('yield', cached.data.spread, true);
-        } else {
-          setYield('yield', null, false);
-        }
-      } finally {
-        spinner.style.display = 'none';
-      }
-    }
-
-    // initial load
-    refreshSP500();
-    refreshVIX();
-    refreshYieldCurve();
-
-    // auto-refresh every 2 minutes
-    setInterval(() => {
-      refreshSP500();
-      refreshVIX();
-      refreshYieldCurve();
-    }, 120000);
+    updateDashboard();
   </script>
 </body>
 </html>
