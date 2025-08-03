@@ -1,5 +1,5 @@
 const FRED_KEY = process.env.FRED_KEY;
-const SPY_SHARES_OUTSTANDING = 950_000_000; // replace with the current verified number if you update
+const SPY_SHARES_OUTSTANDING = 1_024_000_000;
 const SPY_TO_TOTAL_MULTIPLIER = 1.30; // scaling from S&P 500 proxy to total US equity cap
 const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // used to fetch SPY price; keep in sync with frontend if needed
 
