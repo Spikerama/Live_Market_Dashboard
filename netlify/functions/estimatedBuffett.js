@@ -1,32 +1,29 @@
 const FRED_KEY = process.env.FRED_KEY;
-const SP500_SCALING = 1.30; // multiplier to approximate total US equity market cap from S&P 500
+const FMP_KEY = process.env.FMP_KEY;
+const SP500_TO_TOTAL_MULTIPLIER = 1.30; // adjust later if you refine scaling
 
 if (!FRED_KEY) {
   exports.handler = async () => ({
     statusCode: 500,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    body: JSON.stringify({
-      error: 'FRED_KEY not set in environment. Configure it in Netlify env vars.',
-    }),
+    body: JSON.stringify({ error: 'FRED_KEY not set in environment.' }),
+  });
+  return;
+}
+if (!FMP_KEY) {
+  exports.handler = async () => ({
+    statusCode: 500,
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    body: JSON.stringify({ error: 'FMP_KEY not set in environment.' }),
   });
   return;
 }
 
 async function fetchLatestValidFred(seriesId) {
   const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
-  let res;
-  try {
-    res = await fetch(url);
-  } catch (err) {
-    throw new Error(`Network error fetching ${seriesId}: ${err.message}`);
-  }
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`FRED HTTP ${res.status} for ${seriesId}`);
-  let json;
-  try {
-    json = await res.json();
-  } catch (err) {
-    throw new Error(`Invalid JSON from FRED for ${seriesId}: ${err.message}`);
-  }
+  const json = await res.json();
   const obs = json?.observations;
   if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No data for ${seriesId}`);
   for (const o of obs) {
@@ -38,64 +35,51 @@ async function fetchLatestValidFred(seriesId) {
   throw new Error(`No valid observation for ${seriesId}`);
 }
 
-// Improved S&P 500 cap scraper from SlickCharts with fallback diagnostics
-async function fetchSP500MarketCap() {
-  const url = 'https://www.slickcharts.com/sp500';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch S&P500 page: HTTP ${res.status}`);
-  const html = await res.text();
+// Sum market caps of top N S&P 500 constituents (free tier friendly)
+async function fetchSP500CapTopN(n = 50) {
+  const constituentsUrl = `https://financialmodelingprep.com/api/v3/sp500_constituent?apikey=${FMP_KEY}`;
+  const consRes = await fetch(constituentsUrl);
+  if (!consRes.ok) throw new Error(`FMP HTTP ${consRes.status} fetching constituents`);
+  const constituents = await consRes.json();
+  if (!Array.isArray(constituents) || constituents.length === 0) throw new Error('No S&P500 constituents data');
 
-  // Attempt patterns in order
-  const attempts = [
-    // e.g., "Total Market Cap: $40.5T" or variations
-    /Total Market Cap[:\s]*\$([\d\.,]+)\s*([TtBbMm]?)/i,
-    // If label comes after value: "$40.5T Total Market Cap"
-    /\$([\d\.,]+)\s*([TtBbMm]?)\s*Total Market Cap/i,
-    // Generic first large dollar amount followed by T or B (fallback, risky)
-    /\$([\d\.,]+)\s*([TtBbMm])\b/,
-  ];
+  const topList = constituents.slice(0, n); // take first N; could be refined by weight if available
+  let totalCap = 0;
 
-  let capBillions = null;
-  let usedPattern = null;
-
-  for (const pat of attempts) {
-    const match = html.match(pat);
-    if (match) {
-      usedPattern = pat.toString();
-      let number = match[1].replace(/,/g, '');
-      let unit = (match[2] || '').toUpperCase();
-      const parsed = parseFloat(number);
-      if (isNaN(parsed)) continue;
-
-      if (unit === 'T') {
-        capBillions = parsed * 1000;
-      } else if (unit === 'B' || unit === '') {
-        capBillions = parsed;
-      } else if (unit === 'M') {
-        capBillions = parsed / 1000;
-      } else {
-        capBillions = parsed; // assume billions
+  // sequential to be gentle on rate limits (could be parallelized with throttling)
+  for (const item of topList) {
+    const symbol = item.symbol || item.ticker || item;
+    try {
+      const profileUrl = `https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(symbol)}?apikey=${FMP_KEY}`;
+      const profRes = await fetch(profileUrl);
+      if (!profRes.ok) continue; // skip failures silently
+      const profJson = await profRes.json();
+      if (!Array.isArray(profJson) || profJson.length === 0) continue;
+      const profile = profJson[0];
+      const mc = profile.marketCap;
+      if (typeof mc === 'number' && mc > 0) {
+        totalCap += mc;
       }
-      break;
+    } catch {
+      // ignore individual symbol errors
     }
   }
 
-  if (capBillions === null) {
-    // Provide diagnostic snippet to help adjust parsing later
-    const snippet = html.slice(0, 1000); // first 1k chars for context
-    throw new Error(`Could not parse S&P 500 market cap from SlickCharts page. Patterns tried. Snippet: ${snippet}`);
-  }
+  if (totalCap === 0) throw new Error('Failed to aggregate any market cap from top constituents');
 
-  return parseFloat(capBillions.toFixed(2));
+  // Convert to billions USD
+  return totalCap / 1e9;
 }
 
 exports.handler = async function () {
   try {
-    const sp500CapBillions = await fetchSP500MarketCap();
-    const estimatedTotalMarketCapBillions = parseFloat((sp500CapBillions * SP500_SCALING).toFixed(2));
-    const gdpBillions = await fetchLatestValidFred('GDP');
+    // Estimate S&P 500 cap from top constituents
+    const sp500CapBillions = await fetchSP500CapTopN(50); // top 50
+    const estimatedTotalMarketCapBillions = parseFloat((sp500CapBillions * SP500_TO_TOTAL_MULTIPLIER).toFixed(2));
 
-    if (gdpBillions === 0) throw new Error('GDP returned zero, cannot divide');
+    // Fetch GDP (nominal, billions USD)
+    const gdpBillions = await fetchLatestValidFred('GDP');
+    if (gdpBillions === 0) throw new Error('GDP returned zero');
 
     const ratio = parseFloat(((estimatedTotalMarketCapBillions / gdpBillions) * 100).toFixed(2));
     const overvalued = ratio > 120;
@@ -109,9 +93,8 @@ exports.handler = async function () {
         estimatedTotalMarketCapBillions,
         sp500CapBillions,
         gdpBillions,
-        multiplierUsed: SP500_SCALING,
-        source: 'S&P500-scaled / FRED GDP',
-        usedScrapePattern: undefined, // intentionally left blank; front-end can infer if needed
+        multiplierUsed: SP500_TO_TOTAL_MULTIPLIER,
+        source: 'Top-50 S&P500 constituents (FMP) scaled / FRED GDP',
         timestamp: new Date().toISOString(),
       }),
     };
@@ -119,11 +102,7 @@ exports.handler = async function () {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({
-        error: err.message,
-        debug: 'See function logs for more detail',
-        timestamp: new Date().toISOString(),
-      }),
+      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() }),
     };
   }
 };
