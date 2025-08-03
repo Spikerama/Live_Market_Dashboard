@@ -45,10 +45,17 @@ async function fetchLatestValid(seriesId) {
 
 exports.handler = async function () {
   try {
-    const [marketCap, gdp] = await Promise.all([
-      fetchLatestValid('WILL5000INDFC'),
-      fetchLatestValid('GDP'),
-    ]);
+    // Try primary series (WILL5000INDFC). If that fails due to discontinuation, fallback to WILL5000PRFC.
+    let marketCap;
+    try {
+      marketCap = await fetchLatestValid('WILL5000INDFC');
+    } catch (e) {
+      // fallback attempt
+      console.warn('Primary Wilshire 5000 series failed, falling back to WILL5000PRFC:', e.message);
+      marketCap = await fetchLatestValid('WILL5000PRFC');
+    }
+
+    const gdp = await fetchLatestValid('GDP');
 
     if (gdp === 0) throw new Error('GDP returned zero, cannot divide');
 
@@ -67,6 +74,7 @@ exports.handler = async function () {
         marketCap,
         gdp,
         source: 'FRED',
+        usedSeries: marketCap && marketCap === undefined ? 'unknown' : (marketCap && marketCap === undefined ? 'unknown' : undefined),
         timestamp: new Date().toISOString(),
       }),
     };
