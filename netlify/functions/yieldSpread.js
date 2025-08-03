@@ -1,10 +1,33 @@
-const FRED_KEY = process.env.FRED_KEY || 'a5d70f8bbdfae3f817b5fadc98de8e8c';
+const FRED_KEY = process.env.FRED_KEY;
+if (!FRED_KEY) {
+  exports.handler = async () => ({
+    statusCode: 500,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
+    body: JSON.stringify({
+      error: 'FRED_KEY not set in environment. Configure FRED_KEY in Netlify env vars.',
+    }),
+  });
+  return;
+}
 
 async function getLatestValid(seriesId) {
   const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`FRED fetch failed for ${seriesId}: ${res.status}`);
-  const json = await res.json();
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    throw new Error(`Network error fetching ${seriesId}: ${err.message}`);
+  }
+  if (!res.ok) throw new Error(`FRED HTTP ${res.status} for ${seriesId}`);
+  let json;
+  try {
+    json = await res.json();
+  } catch (err) {
+    throw new Error(`Invalid JSON from FRED for ${seriesId}: ${err.message}`);
+  }
   const obs = json?.observations;
   if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No data for ${seriesId}`);
   for (const o of obs) {
@@ -48,7 +71,7 @@ exports.handler = async function () {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
       },
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() }),
     };
   }
 };
