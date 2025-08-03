@@ -64,6 +64,7 @@
     <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="sp500-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
@@ -71,6 +72,7 @@
     <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>VIX Index (^VIX)</h2>
     <div class="value" id="vix-index">-- <span id="vix-index-spinner" class="spinner" style="display:none;"></span></div>
@@ -78,10 +80,7 @@
     <div class="stale" id="vix-index-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-index-updated">Updated: --</div>
   </div>
-    <div class="change" id="vix-change"></div><div class="badge" id="vix-status">--</div>
-    <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
-    <div class="timestamp" id="vix-updated">Updated: --</div>
-  </div>
+
   <div class="card">
     <h2>10Y − 2Y Yield Curve Spread</h2>
     <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
@@ -89,6 +88,7 @@
     <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="yield-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Buffett Indicator (Market Cap / GDP)</h2>
     <div class="value" id="buffett">-- <span id="buffett-spinner" class="spinner" style="display:none;"></span></div>
@@ -96,6 +96,7 @@
     <div class="stale" id="buffett-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="buffett-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Estimated Buffett Indicator (S&P 500 scaled)</h2>
     <div style="font-size:.65rem; margin-bottom:4px;">Approximation: S&P 500 cap × 1.30 / GDP</div>
@@ -243,26 +244,6 @@
           if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
         }
       } finally { spinner.style.display = 'none'; }
-    });
-        document.getElementById('vix-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-        const statusEl = document.getElementById('vix-status');
-        if (statusEl){ statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
-      } catch (e) {
-        console.error('VIXY error', e);
-        const cached = cacheGet('vix');
-        if (cached?.data) {
-          setCard('vix', cached.data.price, cached.data.pct, true);
-          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
-          document.getElementById('vix-updated').textContent = 'Updated: ' + ts + ' (cached)';
-          const statusEl = document.getElementById('vix-status');
-          if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
-        } else {
-          setCard('vix', null, null, false);
-          document.getElementById('vix-updated').textContent = 'Updated: --';
-          const statusEl = document.getElementById('vix-status');
-          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
-        }
-      } finally { spinner.style.display = 'none'; }
     }
 
     // yield via Netlify function / serverless proxy to avoid CORS
@@ -360,9 +341,7 @@
         } else {
           valEl.textContent='Error';
           changeEl.textContent='';
-          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
-          staleEl.style.display='none';
-          updatedEl.textContent='Updated: --';
+          if (statusStatu){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
         }
       } finally {
         spinner.style.display='none';
