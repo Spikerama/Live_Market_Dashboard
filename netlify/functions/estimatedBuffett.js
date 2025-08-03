@@ -1,20 +1,12 @@
 const FRED_KEY = process.env.FRED_KEY;
-const FMP_KEY = process.env.FMP_KEY;
-const SP500_TO_TOTAL_MULTIPLIER = 1.30; // adjust later if you refine scaling
+const SPY_SHARES_OUTSTANDING = 950_000_000; // replace with the current verified number
+const SPY_TO_TOTAL_MULTIPLIER = 1.30; // scaling from S&P 500 proxy to total US equity cap
 
 if (!FRED_KEY) {
   exports.handler = async () => ({
     statusCode: 500,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     body: JSON.stringify({ error: 'FRED_KEY not set in environment.' }),
-  });
-  return;
-}
-if (!FMP_KEY) {
-  exports.handler = async () => ({
-    statusCode: 500,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    body: JSON.stringify({ error: 'FMP_KEY not set in environment.' }),
   });
   return;
 }
@@ -35,49 +27,29 @@ async function fetchLatestValidFred(seriesId) {
   throw new Error(`No valid observation for ${seriesId}`);
 }
 
-// Sum market caps of top N S&P 500 constituents (free tier friendly)
-async function fetchSP500CapTopN(n = 50) {
-  const constituentsUrl = `https://financialmodelingprep.com/api/v3/sp500_constituent?apikey=${FMP_KEY}`;
-  const consRes = await fetch(constituentsUrl);
-  if (!consRes.ok) throw new Error(`FMP HTTP ${consRes.status} fetching constituents`);
-  const constituents = await consRes.json();
-  if (!Array.isArray(constituents) || constituents.length === 0) throw new Error('No S&P500 constituents data');
+// Get SPY price from TwelveData (you already have the key baked into frontend;
+// here we can call the same API or optionally have the frontend pass SPY market cap in, but for self-contained:
+const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // keep synced with frontend if needed
 
-  const topList = constituents.slice(0, n); // take first N; could be refined by weight if available
-  let totalCap = 0;
-
-  // sequential to be gentle on rate limits (could be parallelized with throttling)
-  for (const item of topList) {
-    const symbol = item.symbol || item.ticker || item;
-    try {
-      const profileUrl = `https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(symbol)}?apikey=${FMP_KEY}`;
-      const profRes = await fetch(profileUrl);
-      if (!profRes.ok) continue; // skip failures silently
-      const profJson = await profRes.json();
-      if (!Array.isArray(profJson) || profJson.length === 0) continue;
-      const profile = profJson[0];
-      const mc = profile.marketCap;
-      if (typeof mc === 'number' && mc > 0) {
-        totalCap += mc;
-      }
-    } catch {
-      // ignore individual symbol errors
-    }
+async function fetchSPYPrice() {
+  const url = `https://api.twelvedata.com/quote?symbol=SPY&apikey=${TWELVE_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`TwelveData HTTP ${res.status} for SPY`);
+  const json = await res.json();
+  if (json.status === 'error' || typeof json.close === 'undefined') {
+    throw new Error(`Bad SPY data: ${JSON.stringify(json).slice(0,200)}`);
   }
-
-  if (totalCap === 0) throw new Error('Failed to aggregate any market cap from top constituents');
-
-  // Convert to billions USD
-  return totalCap / 1e9;
+  return parseFloat(json.close);
 }
 
 exports.handler = async function () {
   try {
-    // Estimate S&P 500 cap from top constituents
-    const sp500CapBillions = await fetchSP500CapTopN(50); // top 50
-    const estimatedTotalMarketCapBillions = parseFloat((sp500CapBillions * SP500_TO_TOTAL_MULTIPLIER).toFixed(2));
+    const spyPrice = await fetchSPYPrice(); // in USD
+    const spyMarketCap = spyPrice * SPY_SHARES_OUTSTANDING; // in USD
+    const spyMarketCapBillions = spyMarketCap / 1e9;
 
-    // Fetch GDP (nominal, billions USD)
+    const estimatedTotalMarketCapBillions = parseFloat((spyMarketCapBillions * SPY_TO_TOTAL_MULTIPLIER).toFixed(2));
+
     const gdpBillions = await fetchLatestValidFred('GDP');
     if (gdpBillions === 0) throw new Error('GDP returned zero');
 
@@ -91,10 +63,10 @@ exports.handler = async function () {
         ratio,
         overvalued,
         estimatedTotalMarketCapBillions,
-        sp500CapBillions,
+        spyMarketCapBillions,
         gdpBillions,
-        multiplierUsed: SP500_TO_TOTAL_MULTIPLIER,
-        source: 'Top-50 S&P500 constituents (FMP) scaled / FRED GDP',
+        multiplierUsed: SPY_TO_TOTAL_MULTIPLIER,
+        source: 'SPY-derived (TwelveData) / FRED GDP',
         timestamp: new Date().toISOString(),
       }),
     };
