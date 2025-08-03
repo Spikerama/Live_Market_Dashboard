@@ -64,7 +64,6 @@
     <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="sp500-updated">Updated: --</div>
   </div>
-
   <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
@@ -72,7 +71,6 @@
     <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-updated">Updated: --</div>
   </div>
-
   <div class="card">
     <h2>VIX Index (^VIX)</h2>
     <div class="value" id="vix-index">-- <span id="vix-index-spinner" class="spinner" style="display:none;"></span></div>
@@ -80,7 +78,6 @@
     <div class="stale" id="vix-index-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-index-updated">Updated: --</div>
   </div>
-
   <div class="card">
     <h2>10Y − 2Y Yield Curve Spread</h2>
     <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
@@ -88,7 +85,6 @@
     <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="yield-updated">Updated: --</div>
   </div>
-
   <div class="card">
     <h2>Buffett Indicator (Market Cap / GDP)</h2>
     <div class="value" id="buffett">-- <span id="buffett-spinner" class="spinner" style="display:none;"></span></div>
@@ -96,7 +92,6 @@
     <div class="stale" id="buffett-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="buffett-updated">Updated: --</div>
   </div>
-
   <div class="card">
     <h2>Estimated Buffett Indicator (S&P 500 scaled)</h2>
     <div style="font-size:.65rem; margin-bottom:4px;">Approximation: S&P 500 cap × 1.30 / GDP</div>
@@ -222,7 +217,7 @@
         const json = await res.json();
         if (json.error) throw new Error(json.error);
         const price = parseFloat(json.price);
-        const change = parseFloat(json.changePercent || 0);
+        const change = json.changePercent != null ? parseFloat(json.changePercent) : null;
         setCard('vix-index', price, change, false);
         cacheSet('vix-index', { price, change });
         document.getElementById('vix-index-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
@@ -238,10 +233,13 @@
           const statusEl = document.getElementById('vix-index-status');
           if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
         } else {
-          setCard('vix-index', null, null, false);
+          // No cached data: show explicit no data instead of generic error
+          const valEl = document.getElementById('vix-index');
+          valEl.textContent = 'No data';
+          document.getElementById('vix-index-change').textContent = '';
           document.getElementById('vix-index-updated').textContent = 'Updated: --';
           const statusEl = document.getElementById('vix-index-status');
-          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+          if (statusEl){ statusEl.textContent='NO DATA'; statusEl.className='badge'; }
         }
       } finally { spinner.style.display = 'none'; }
     }
@@ -282,8 +280,6 @@
           document.getElementById('yield-stale').style.display = 'block';
           const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
           document.getElementById('yield-updated').textContent = 'Updated: ' + ts + ' (cached)';
-          const statusEl = document.getElementById('yield-status');
-          if (statusEl) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
         } else {
           setCard('yield', null, null, false);
           document.getElementById('yield-updated').textContent = 'Updated: --';
@@ -341,7 +337,9 @@
         } else {
           valEl.textContent='Error';
           changeEl.textContent='';
-          if (statusStatu){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+          staleEl.style.display='none';
+          updatedEl.textContent='Updated: --';
         }
       } finally {
         spinner.style.display='none';
