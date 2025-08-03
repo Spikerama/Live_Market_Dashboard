@@ -233,6 +233,12 @@
       spinner.style.display = 'inline-block';
       try {
         const res = await fetch('/.netlify/functions/buffett');
+        if (!res.ok) throw new Error(`HTTP ${res.status} from Buffett function`);
+        const contentType = res.headers.get('Content-Type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await res.text();
+          throw new Error(`Expected JSON but got: ${text.slice(0, 200)}`);
+        }
         const json = await res.json();
         if (json.error) throw new Error(json.error);
         const ratio = json.ratio;
