@@ -1,6 +1,7 @@
 const FRED_KEY = process.env.FRED_KEY;
-const SPY_SHARES_OUTSTANDING = 950_000_000; // replace with the current verified number
+const SPY_SHARES_OUTSTANDING = 950_000_000; // replace with the current verified number if you update
 const SPY_TO_TOTAL_MULTIPLIER = 1.30; // scaling from S&P 500 proxy to total US equity cap
+const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // used to fetch SPY price; keep in sync with frontend if needed
 
 if (!FRED_KEY) {
   exports.handler = async () => ({
@@ -27,17 +28,13 @@ async function fetchLatestValidFred(seriesId) {
   throw new Error(`No valid observation for ${seriesId}`);
 }
 
-// Get SPY price from TwelveData (you already have the key baked into frontend;
-// here we can call the same API or optionally have the frontend pass SPY market cap in, but for self-contained:
-const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // keep synced with frontend if needed
-
 async function fetchSPYPrice() {
   const url = `https://api.twelvedata.com/quote?symbol=SPY&apikey=${TWELVE_KEY}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`TwelveData HTTP ${res.status} for SPY`);
   const json = await res.json();
   if (json.status === 'error' || typeof json.close === 'undefined') {
-    throw new Error(`Bad SPY data: ${JSON.stringify(json).slice(0,200)}`);
+    throw new Error(`Bad SPY data: ${JSON.stringify(json).slice(0, 200)}`);
   }
   return parseFloat(json.close);
 }
