@@ -1,4 +1,4 @@
-// vixIndex.js — gets VIX index from Stooq CSV and computes daily change%
+// vixIndex.js — gets VIX index from Stooq CSV; if only one row exists, returns price with null change%
 const STOOQ_CSV_URL = 'https://stooq.com/q/d/l/?s=^vix&i=d'; // daily VIX CSV
 
 async function fetchTextWithRetry(url, attempts = 3, delay = 300) {
@@ -18,24 +18,31 @@ async function fetchTextWithRetry(url, attempts = 3, delay = 300) {
   throw new Error(`All retries failed fetching Stooq CSV: ${lastErr?.message || 'unknown'}`);
 }
 
-function parseStooqCSVForPriceAndChange(csvText) {
-  // CSV header: Date,Open,High,Low,Close,Volume
+function parseStooqCSV(csvText) {
+  // CSV format: Date,Open,High,Low,Close,Volume
   const lines = csvText.trim().split('\n').filter(l => l.trim());
-  if (lines.length < 3) throw new Error('Not enough data rows in Stooq CSV to compute change');
-  // Last line = most recent, second last = prior
-  const latest = lines[lines.length - 1].split(',');
-  const prior = lines[lines.length - 2].split(',');
-  const latestClose = parseFloat(latest[4]);
-  const priorClose = parseFloat(prior[4]);
-  if (isNaN(latestClose) || isNaN(priorClose)) throw new Error('Invalid close prices from Stooq CSV');
-  const changePercent = ((latestClose - priorClose) / priorClose) * 100;
-  return { price: latestClose, changePercent: parseFloat(changePercent.toFixed(2)) };
+  if (lines.length < 2) throw new Error('No data rows in Stooq CSV');
+  // Latest is last line
+  const latestParts = lines[lines.length - 1].split(',');
+  const latestClose = parseFloat(latestParts[4]);
+  if (isNaN(latestClose)) throw new Error('Invalid latest close from Stooq CSV');
+
+  let changePercent = null;
+  if (lines.length >= 3) {
+    // have prior to compute change
+    const priorParts = lines[lines.length - 2].split(',');
+    const priorClose = parseFloat(priorParts[4]);
+    if (!isNaN(priorClose) && priorClose !== 0) {
+      changePercent = parseFloat((((latestClose - priorClose) / priorClose) * 100).toFixed(2));
+    }
+  }
+  return { price: latestClose, changePercent };
 }
 
 exports.handler = async function () {
   try {
     const csv = await fetchTextWithRetry(STOOQ_CSV_URL);
-    const { price, changePercent } = parseStooqCSVForPriceAndChange(csv);
+    const { price, changePercent } = parseStooqCSV(csv);
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
