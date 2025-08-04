@@ -8,7 +8,7 @@
     body {
       background-color: #111;
       color: #fff;
-      font-family: 'Poppins', sans-serif;
+      font-family: system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
       margin: 0;
       padding: 2rem;
       display: grid;
@@ -18,9 +18,10 @@
     .card {
       background: #1a1a1a;
       border-radius: 16px;
-      box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
+      box-shadow: 0 0 16px rgba(0, 255, 255, 0.08);
       padding: 1.5rem;
       text-align: center;
+      position: relative;
     }
     .card h2 {
       font-size: 1rem;
@@ -50,7 +51,7 @@
       margin-left: 6px;
     }
     .timestamp { font-size: .65rem; margin-top: 4px; opacity: .8; }
-    .badge {display:inline-block; padding:2px 6px; border-radius:8px; font-size:.65rem; font-weight:600; vertical-align:middle;}
+    .badge {display:inline-block; padding:2px 6px; border-radius:8px; font-size:.65rem; font-weight:600; vertical-align:middle; margin-left:4px;}
     .badge-live {background: #0f0; color: #000;}
     .badge-cached {background: #555; color: #fff;}
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -64,6 +65,7 @@
     <div class="stale" id="sp500-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="sp500-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Tesla (TSLA)</h2>
     <div class="value" id="tsla">-- <span id="tsla-spinner" class="spinner" style="display:none;"></span></div>
@@ -71,6 +73,7 @@
     <div class="stale" id="tsla-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="tsla-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
@@ -78,6 +81,7 @@
     <div class="stale" id="vix-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>VIX Index (^VIX)</h2>
     <div class="value" id="vix-index">-- <span id="vix-index-spinner" class="spinner" style="display:none;"></span></div>
@@ -85,6 +89,7 @@
     <div class="stale" id="vix-index-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="vix-index-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>10Y − 2Y Yield Curve Spread</h2>
     <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
@@ -92,6 +97,7 @@
     <div class="stale" id="yield-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="yield-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Buffett Indicator (Market Cap / GDP)</h2>
     <div class="value" id="buffett">-- <span id="buffett-spinner" class="spinner" style="display:none;"></span></div>
@@ -99,6 +105,7 @@
     <div class="stale" id="buffett-stale" style="display:none;">Using cached value</div>
     <div class="timestamp" id="buffett-updated">Updated: --</div>
   </div>
+
   <div class="card">
     <h2>Estimated Buffett Indicator (S&P 500 scaled)</h2>
     <div style="font-size:.65rem; margin-bottom:4px;">Approximation: S&P 500 cap × 1.30 / GDP</div>
@@ -109,7 +116,7 @@
   </div>
 
   <script>
-    const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071'; // used for SPY, TSLA, VIXY
+    const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
 
     function cacheSet(key, obj) { try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); } catch {} }
     function cacheGet(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
@@ -140,14 +147,14 @@
       const staleEl = document.getElementById(id + '-stale');
       const statusEl = document.getElementById(id + '-status');
       if (value === null || value === undefined || isNaN(value)) {
-        valEl.textContent = 'Error';
+        if (valEl) valEl.textContent = 'Error';
         if (changeEl) changeEl.textContent = '';
         if (staleEl) staleEl.style.display = 'none';
         if (statusEl) { statusEl.textContent = 'ERROR'; statusEl.className='badge'; }
         return;
       }
-      valEl.textContent = parseFloat(value).toFixed(2);
-      if (typeof change === 'number') {
+      if (valEl) valEl.textContent = parseFloat(value).toFixed(2);
+      if (typeof change === 'number' && changeEl) {
         const arrow = change >= 0 ? '▲' : '▼';
         changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
         changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
@@ -157,9 +164,309 @@
 
     async function refreshSPY() {
       const spinner = document.getElementById('sp500-spinner');
-      spinner.style.display = 'inline-block';
+      if (spinner) spinner.style.display = 'inline-block';
       try {
-      ... (rest of script needs to be completed here)
+        const q = await getTwelveQuote('SPY');
+        const price = parseFloat(q.close);
+        const pct = parseFloat(q.percent_change);
+        setCard('sp500', price, pct, false);
+        cacheSet('sp500', { price, pct });
+        document.getElementById('sp500-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('sp500-status');
+        if (statusEl){ statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      } catch (e) {
+        console.error('SPY error', e);
+        const cached = cacheGet('sp500');
+        if (cached?.data) {
+          setCard('sp500', cached.data.price, cached.data.pct, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('sp500-updated').textContent = 'Updated: ' + ts + ' (cached)';
+          const statusEl = document.getElementById('sp500-status');
+          if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          setCard('sp500', null, null, false);
+          document.getElementById('sp500-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('sp500-status');
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshTSLA() {
+      const spinner = document.getElementById('tsla-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const q = await getTwelveQuote('TSLA');
+        const price = parseFloat(q.close);
+        const pct = parseFloat(q.percent_change);
+        setCard('tsla', price, pct, false);
+        cacheSet('tsla', { price, pct });
+        document.getElementById('tsla-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('tsla-status');
+        if (statusEl){ statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      } catch (e) {
+        console.error('TSLA error', e);
+        const cached = cacheGet('tsla');
+        if (cached?.data) {
+          setCard('tsla', cached.data.price, cached.data.pct, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('tsla-updated').textContent = 'Updated: ' + ts + ' (cached)';
+          const statusEl = document.getElementById('tsla-status');
+          if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          setCard('tsla', null, null, false);
+          document.getElementById('tsla-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('tsla-status');
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshVIX() {
+      const spinner = document.getElementById('vix-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const q = await getTwelveQuote('VIXY');
+        const price = parseFloat(q.close);
+        const pct = parseFloat(q.percent_change);
+        setCard('vix', price, pct, false);
+        cacheSet('vix', { price, pct });
+        document.getElementById('vix-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('vix-status');
+        if (statusEl){ statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      } catch (e) {
+        console.error('VIXY error', e);
+        const cached = cacheGet('vix');
+        if (cached?.data) {
+          setCard('vix', cached.data.price, cached.data.pct, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('vix-updated').textContent = 'Updated: ' + ts + ' (cached)';
+          const statusEl = document.getElementById('vix-status');
+          if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          setCard('vix', null, null, false);
+          document.getElementById('vix-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('vix-status');
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshVIXIndex() {
+      const spinner = document.getElementById('vix-index-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const res = await fetch('/.netlify/functions/vixIndex');
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        const price = parseFloat(json.price);
+        const change = json.changePercent != null ? parseFloat(json.changePercent) : null;
+        setCard('vix-index', price, change, false);
+        cacheSet('vix-index', { price, change });
+        document.getElementById('vix-index-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('vix-index-status');
+        if (statusEl){ statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      } catch (e) {
+        console.error('VIX index error', e);
+        const cached = cacheGet('vix-index');
+        if (cached?.data) {
+          setCard('vix-index', cached.data.price, cached.data.change, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('vix-index-updated').textContent = 'Updated: ' + ts + ' (cached)';
+          const statusEl = document.getElementById('vix-index-status');
+          if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          const valEl = document.getElementById('vix-index');
+          if (valEl) valEl.textContent = 'No data';
+          document.getElementById('vix-index-change').textContent = '';
+          document.getElementById('vix-index-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('vix-index-status');
+          if (statusEl){ statusEl.textContent='NO DATA'; statusEl.className='badge'; }
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshYieldCurve() {
+      const spinner = document.getElementById('yield-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const res = await fetch('/.netlify/functions/yieldSpread');
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        const spread = json.spread;
+        const inverted = json.inverted;
+        const valEl = document.getElementById('yield');
+        const changeEl = document.getElementById('yield-change');
+        if (valEl) valEl.textContent = `${spread.toFixed(2)}%`;
+        if (changeEl) {
+          const arrow = spread >= 0 ? '▲' : '▼';
+          changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
+          changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
+        }
+        cacheSet('yield', { spread, inverted });
+        document.getElementById('yield-stale').style.display = 'none';
+        document.getElementById('yield-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('yield-status');
+        if (statusEl) { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      } catch (e) {
+        console.error('Yield curve fetch failed:', e);
+        const cached = cacheGet('yield');
+        if (cached?.data) {
+          const spread = cached.data.spread;
+          const inverted = cached.data.inverted;
+          const valEl = document.getElementById('yield');
+          const changeEl = document.getElementById('yield-change');
+          if (valEl) valEl.textContent = `${spread.toFixed(2)}%`;
+          if (changeEl) {
+            const arrow = spread >= 0 ? '▲' : '▼';
+            changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
+            changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
+          }
+          document.getElementById('yield-stale').style.display = 'block';
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('yield-updated').textContent = 'Updated: ' + ts + ' (cached)';
+        } else {
+          setCard('yield', null, null, false);
+          document.getElementById('yield-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('yield-status');
+          if (statusEl) { statusEl.textContent='ERROR'; statusEl.className='badge'; }
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshBuffett() {
+      const spinner = document.getElementById('buffett-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const res = await fetch('/.netlify/functions/buffett');
+        if (!res.ok) throw new Error(`HTTP ${res.status} from Buffett function`);
+        const contentType = res.headers.get('Content-Type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await res.text();
+          throw new Error(`Expected JSON but got: ${text.slice(0, 200)}`);
+        }
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        const ratio = json.ratio;
+        const overvalued = json.overvalued;
+        const valEl = document.getElementById('buffett');
+        const changeEl = document.getElementById('buffett-change');
+        const statusEl = document.getElementById('buffett-status');
+        const staleEl = document.getElementById('buffett-stale');
+        const updatedEl = document.getElementById('buffett-updated');
+        if (valEl) valEl.textContent = `${ratio.toFixed(2)}%`;
+        if (changeEl) {
+          changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
+          changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+        }
+        if (staleEl) staleEl.style.display = 'none';
+        if (updatedEl) updatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        if (statusEl) { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+        cacheSet('buffett', { ratio: json.ratio, overvalued: json.overvalued });
+      } catch (e) {
+        console.error('Buffett indicator failed:', e);
+        const cached = cacheGet('buffett');
+        const valEl = document.getElementById('buffett');
+        const changeEl = document.getElementById('buffett-change');
+        const statusEl = document.getElementById('buffett-status');
+        const staleEl = document.getElementById('buffett-stale');
+        const updatedEl = document.getElementById('buffett-updated');
+        if (cached?.data) {
+          const ratio = cached.data.ratio;
+          const overvalued = cached.data.overvalued;
+          if (valEl) valEl.textContent = `${ratio.toFixed(2)}%`;
+          if (changeEl) {
+            changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
+          changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+          }
+          if (staleEl) staleEl.style.display = 'block';
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          if (updatedEl) updatedEl.textContent = 'Updated: ' + ts + ' (cached)';
+          if (statusEl) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          if (valEl) valEl.textContent='Error';
+          if (changeEl) changeEl.textContent=''; 
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+          if (staleEl) staleEl.style.display='none';
+          if (updatedEl) updatedEl.textContent='Updated: --';
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshEstimatedBuffett() {
+      const spinner = document.getElementById('estimated-buffett-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const res = await fetch('/.netlify/functions/estimatedBuffett');
+        if (!res.ok) throw new Error(`HTTP ${res.status} from estimatedBuffett function`);
+        const json = await res.json();
+        if (json.error) throw new Error(json.error);
+        const ratio = json.ratio;
+        const overvalued = json.overvalued;
+        const valEl = document.getElementById('estimated-buffett');
+        const changeEl = document.getElementById('estimated-buffett-change');
+        const statusEl = document.getElementById('estimated-buffett-status');
+        const staleEl = document.getElementById('estimated-buffett-stale');
+        const updatedEl = document.getElementById('estimated-buffett-updated');
+        if (valEl) valEl.textContent = `${ratio.toFixed(2)}%`;
+        if (changeEl) {
+          changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
+          changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+        }
+        if (staleEl) staleEl.style.display = 'none';
+        if (updatedEl) updatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        if (statusEl) { statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+        cacheSet('estimated-buffett', { ratio: json.ratio, overvalued: json.overvalued });
+      } catch (e) {
+        console.error('Estimated Buffett failed:', e);
+        const cached = cacheGet('estimated-buffett');
+        const valEl = document.getElementById('estimated-buffett');
+        const changeEl = document.getElementById('estimated-buffett-change');
+        const statusEl = document.getElementById('estimated-buffett-status');
+        const staleEl = document.getElementById('estimated-buffett-stale');
+        const updatedEl = document.getElementById('estimated-buffett-updated');
+        if (cached?.data) {
+          const ratio = cached.data.ratio;
+          const overvalued = cached.data.overvalued;
+          if (valEl) valEl.textContent = `${ratio.toFixed(2)}%`;
+          if (changeEl) {
+            changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
+            changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+          }
+          if (staleEl) staleEl.style.display = 'block';
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          if (updatedEl) updatedEl.textContent = 'Updated: ' + ts + ' (cached)';
+          if (statusEl) { statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          if (valEl) valEl.textContent='Error';
+          if (changeEl) changeEl.textContent=''; 
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+          if (staleEl) staleEl.style.display='none';
+          if (updatedEl) updatedEl.textContent='Updated: --';
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    function boot() {
+      refreshSPY();
+      refreshTSLA();
+      refreshVIX();
+      refreshVIXIndex();
+      refreshYieldCurve();
+      refreshBuffett();
+      refreshEstimatedBuffett();
+      setInterval(() => {
+        refreshSPY();
+        refreshTSLA();
+        refreshVIX();
+        refreshVIXIndex();
+        refreshYieldCurve();
+        refreshBuffett();
+        refreshEstimatedBuffett();
+      }, 120000);
+    }
+
+    document.addEventListener('DOMContentLoaded', boot);
   </script>
 </body>
 </html>
