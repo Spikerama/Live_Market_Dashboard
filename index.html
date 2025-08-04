@@ -75,6 +75,14 @@
   </div>
 
   <div class="card">
+    <h2>Lithium Spot Proxy (LIT ETF)</h2>
+    <div class="value" id="lithium">-- <span id="lithium-spinner" class="spinner" style="display:none;"></span></div>
+    <div class="change" id="lithium-change"></div><div class="badge" id="lithium-status">--</div>
+    <div class="stale" id="lithium-stale" style="display:none;">Using cached value</div>
+    <div class="timestamp" id="lithium-updated">Updated: --</div>
+  </div>
+
+  <div class="card">
     <h2>Volatility (VIXY)</h2>
     <div class="value" id="vix">-- <span id="vix-spinner" class="spinner" style="display:none;"></span></div>
     <div class="change" id="vix-change"></div><div class="badge" id="vix-status">--</div>
@@ -217,6 +225,36 @@
           setCard('tsla', null, null, false);
           document.getElementById('tsla-updated').textContent = 'Updated: --';
           const statusEl = document.getElementById('tsla-status');
+          if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
+        }
+      } finally { if (spinner) spinner.style.display = 'none'; }
+    }
+
+    async function refreshLithium() {
+      const spinner = document.getElementById('lithium-spinner');
+      if (spinner) spinner.style.display = 'inline-block';
+      try {
+        const q = await getTwelveQuote('LIT');
+        const price = parseFloat(q.close);
+        const pct = parseFloat(q.percent_change);
+        setCard('lithium', price, pct, false);
+        cacheSet('lithium', { price, pct });
+        document.getElementById('lithium-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        const statusEl = document.getElementById('lithium-status');
+        if (statusEl){ statusEl.textContent='LIVE'; statusEl.className='badge badge-live'; }
+      } catch (e) {
+        console.error('Lithium (LIT) error', e);
+        const cached = cacheGet('lithium');
+        if (cached?.data) {
+          setCard('lithium', cached.data.price, cached.data.pct, true);
+          const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
+          document.getElementById('lithium-updated').textContent = 'Updated: ' + ts + ' (cached)';
+          const statusEl = document.getElementById('lithium-status');
+          if (statusEl){ statusEl.textContent='CACHED'; statusEl.className='badge badge-cached'; }
+        } else {
+          setCard('lithium', null, null, false);
+          document.getElementById('lithium-updated').textContent = 'Updated: --';
+          const statusEl = document.getElementById('lithium-status');
           if (statusEl){ statusEl.textContent='ERROR'; statusEl.className='badge'; }
         }
       } finally { if (spinner) spinner.style.display = 'none'; }
@@ -377,7 +415,7 @@
           if (valEl) valEl.textContent = `${ratio.toFixed(2)}%`;
           if (changeEl) {
             changeEl.textContent = overvalued ? '▲ Overvalued' : '▼ Normal';
-          changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
+            changeEl.className = 'change ' + (overvalued ? 'up' : 'down');
           }
           if (staleEl) staleEl.style.display = 'block';
           const ts = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '--';
@@ -450,6 +488,7 @@
     function boot() {
       refreshSPY();
       refreshTSLA();
+      refreshLithium();
       refreshVIX();
       refreshVIXIndex();
       refreshYieldCurve();
@@ -458,6 +497,7 @@
       setInterval(() => {
         refreshSPY();
         refreshTSLA();
+        refreshLithium();
         refreshVIX();
         refreshVIXIndex();
         refreshYieldCurve();
