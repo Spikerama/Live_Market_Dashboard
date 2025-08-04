@@ -1,77 +1,57 @@
+import fetch from 'node-fetch'; // if using standard Netlify JS functions; adjust if using Edge runtime
+
 const FRED_KEY = process.env.FRED_KEY;
 if (!FRED_KEY) {
-  exports.handler = async () => ({
-    statusCode: 500,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-    body: JSON.stringify({
-      error: 'FRED_KEY not set in environment. Configure FRED_KEY in Netlify env vars.',
-    }),
-  });
-  return;
+  console.warn('FRED_KEY not set in environment');
 }
 
-async function getLatestValid(seriesId) {
-  const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
-  let res;
-  try {
-    res = await fetch(url);
-  } catch (err) {
-    throw new Error(`Network error fetching ${seriesId}: ${err.message}`);
+const fetchLatestObservation = async (series_id) => {
+  const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series_id}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`FRED HTTP ${res.status} for series ${series_id}`);
+  const json = await res.json();
+  if (!json.observations || !Array.isArray(json.observations)) {
+    throw new Error(`No observations array for ${series_id}`);
   }
-  if (!res.ok) throw new Error(`FRED HTTP ${res.status} for ${seriesId}`);
-  let json;
-  try {
-    json = await res.json();
-  } catch (err) {
-    throw new Error(`Invalid JSON from FRED for ${seriesId}: ${err.message}`);
-  }
-  const obs = json?.observations;
-  if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No data for ${seriesId}`);
-  for (const o of obs) {
-    const v = o.value;
-    if (v === '.' || v === null || v === undefined) continue;
-    const parsed = parseFloat(v);
-    if (!isNaN(parsed)) return parsed;
-  }
-  throw new Error(`No valid observation for ${seriesId}`);
-}
+  const todayStr = new Date().toISOString().slice(0, 10);
+  // Find first observation with a numeric value that's not in the future
+  const obs = json.observations.find(o => o.value !== '.' && o.date <= todayStr);
+  if (!obs) throw new Error(`No valid recent observation for ${series_id}`);
+  const val = parseFloat(obs.value);
+  if (isNaN(val)) throw new Error(`Parsed NaN for ${series_id} observation`);
+  return val;
+};
 
-exports.handler = async function () {
+export async function handler(event) {
   try {
-    const [tenY, twoY] = await Promise.all([
-      getLatestValid('DGS10'),
-      getLatestValid('DGS2'),
+    const [y10, y2] = await Promise.all([
+      fetchLatestObservation('DGS10'),
+      fetchLatestObservation('DGS2'),
     ]);
 
-    const spread = parseFloat((tenY - twoY).toFixed(2));
+    const spread = y10 - y2;
     const inverted = spread < 0;
 
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
       body: JSON.stringify({
-        spread,
+        spread: parseFloat(spread.toFixed(2)),
         inverted,
-        tenY,
-        twoY,
         source: 'FRED',
         timestamp: new Date().toISOString(),
+        components: { '10Y': y10, '2Y': y2 },
       }),
+      headers: {
+        'Cache-Control': 'no-store, must-revalidate',
+        'Content-Type': 'application/json',
+      },
     };
   } catch (err) {
+    console.error('yieldSpread error:', err);
     return {
       statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
       body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() }),
+      headers: { 'Content-Type': 'application/json' },
     };
   }
-};
+}
