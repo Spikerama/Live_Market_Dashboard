@@ -4,10 +4,6 @@
   <meta charset="utf-8" />
   <title>Market Warning Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- TradingView library added -->
-  <script src="https://s3.tradingview.com/tv.js"></script>
-
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet" />
@@ -210,10 +206,6 @@
       <div class="card" data-widget="vixindex" id="card-vix-index">
         <div class="small-label">Volatility</div>
         <h2>VIX Index (^VIX)</h2>
-
-        <!-- TradingView container inserted here -->
-        <div id="vix-index-widget" style="width:100%; height:100px;"></div>
-
         <div class="value" id="vix-index">
           -- <span id="vix-index-spinner" class="spinner" style="display:none;"></span>
         </div>
@@ -260,7 +252,7 @@
       for (let i = 0; i < attempts; i++) {
         try {
           const res = await fetch(url);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error(HTTP ${res.status});
           return await res.json();
         } catch (e) {
           if (i === attempts - 1) throw e;
@@ -270,9 +262,9 @@
     }
 
     async function getTwelveQuote(symbol) {
-      const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY}`;
+      const url = https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY};
       const json = await fetchWithRetry(url);
-      if (!json || json.status === 'error' || typeof json.close === 'undefined') throw new Error(`Bad data for ${symbol}`);
+      if (!json || json.status === 'error' || typeof json.close === 'undefined') throw new Error(Bad data for ${symbol});
       return json;
     }
 
@@ -291,26 +283,26 @@
       if (valEl) valEl.textContent = parseFloat(value).toFixed(2);
       if (typeof change === 'number' && changeEl) {
         const arrow = change >= 0 ? '▲' : '▼';
-        changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
+        changeEl.textContent = ${arrow} ${Math.abs(change).toFixed(2)}%;
         changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
       }
       if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
     }
 
     function pushHistory(key, value) {
-      try { const raw = localStorage.getItem(`spark_${key}`); let arr = raw ? JSON.parse(raw) : []; arr.push(value); if (arr.length > 30) arr = arr.slice(-30); localStorage.setItem(`spark_${key}`, JSON.stringify(arr)); } catch {}
+      try { const raw = localStorage.getItem(spark_${key}); let arr = raw ? JSON.parse(raw) : []; arr.push(value); if (arr.length > 30) arr = arr.slice(-30); localStorage.setItem(spark_${key}, JSON.stringify(arr)); } catch {}
     }
-    function getHistory(key) { try { const raw = localStorage.getItem(`spark_${key}`); return raw ? JSON.parse(raw) : []; } catch { return []; } }
+    function getHistory(key) { try { const raw = localStorage.getItem(spark_${key}); return raw ? JSON.parse(raw) : []; } catch { return []; } }
     function drawSparkline(containerId, data) {
       const w = 100, h = 28;
       if (!data || data.length === 0) { document.getElementById(containerId).innerHTML = ''; return; }
       const max = Math.max(...data); const min = Math.min(...data); const range = max - min || 1;
       let path = '';
-      data.forEach((v,i) => { const x = (i/(data.length-1)) * w; const y = h - ((v - min) / range) * h; path += i === 0 ? `M${x},${y}` : ` L${x},${y}`; });
-      const svg = `
+      data.forEach((v,i) => { const x = (i/(data.length-1)) * w; const y = h - ((v - min) / range) * h; path += i === 0 ? M${x},${y} :  L${x},${y}; });
+      const svg = 
         <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="sparkline">
           <path d="${path}" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>`;
+        </svg>;
       document.getElementById(containerId).innerHTML = svg;
     }
 
@@ -325,7 +317,7 @@
       const rn = Math.round(r + (r2 - r)*t);
       const gn = Math.round(g + (g2 - g)*t);
       const bn = Math.round(b + (b2 - b)*t);
-      return `rgb(${rn},${gn},${bn})`;
+      return rgb(${rn},${gn},${bn});
     }
 
     function riskColor(score) {
@@ -364,16 +356,16 @@
     async function refreshYieldCurve() {
       const spinner = document.getElementById('yield-spinner'); if (spinner) spinner.style.display='inline-block';
       try {
-        const res = await fetch(`/.netlify/functions/yieldSpread?bust=${Date.now()}`);
+        const res = await fetch(/.netlify/functions/yieldSpread?bust=${Date.now()});
         const json = await res.json();
         if (json.error) throw new Error(json.error);
         const spread = json.spread;
         const inverted = json.inverted;
-        if (document.getElementById('yield')) document.getElementById('yield').textContent = `${spread.toFixed(2)}%`;
+        if (document.getElementById('yield')) document.getElementById('yield').textContent = ${spread.toFixed(2)}%;
         const changeEl = document.getElementById('yield-change');
         if (changeEl) {
           const arrow = spread >= 0 ? '▲' : '▼';
-          changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
+          changeEl.textContent = ${arrow} ${inverted ? 'Inverted' : 'Normal'};
           changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
         }
         cacheSet('yield', { spread, inverted });
@@ -387,11 +379,11 @@
         if (cached?.data) {
           const spread = cached.data.spread;
           const inverted = cached.data.inverted;
-          if (document.getElementById('yield')) document.getElementById('yield').textContent = `${spread.toFixed(2)}%`;
+          if (document.getElementById('yield')) document.getElementById('yield').textContent = ${spread.toFixed(2)}%;
           const changeEl = document.getElementById('yield-change');
           if (changeEl) {
             const arrow = spread >= 0 ? '▲' : '▼';
-            changeEl.textContent = `${arrow} ${inverted ? 'Inverted' : 'Normal'}`;
+            changeEl.textContent = ${arrow} ${inverted ? 'Inverted' : 'Normal'};
             changeEl.className = 'change ' + (spread >= 0 ? 'up' : 'down');
           }
           document.getElementById('yield-stale').style.display='block';
@@ -411,12 +403,12 @@
       const spinner = document.getElementById('estimated-buffett-spinner'); if (spinner) spinner.style.display='inline-block';
       try {
         const res = await fetch('/.netlify/functions/estimatedBuffett');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(HTTP ${res.status});
         const json = await res.json();
         if (json.error) throw new Error(json.error);
         const ratio = json.ratio;
         const overvalued = ratio >= 3.0;
-        if (document.getElementById('estimated-buffett')) document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
+        if (document.getElementById('estimated-buffett')) document.getElementById('estimated-buffett').textContent = ${ratio.toFixed(2)}%;
         const changeEl = document.getElementById('estimated-buffett-change');
         if (changeEl) {
           changeEl.textContent = overvalued ? '▲ Overvalued' : (ratio >= 2.5 ? '▲ Caution' : '▼ Normal');
@@ -425,7 +417,7 @@
         const inner = document.getElementById('estimated-buffett-threshold');
         const label = document.getElementById('estimated-buffett-label');
         const width = Math.min((ratio / 5) * 100, 100);
-        if (inner) inner.style.width = `${width}%`;
+        if (inner) inner.style.width = ${width}%;
         if (ratio < 2.5) {
           if (inner) inner.style.background = '#28c17d';
           label.textContent='Normal';
@@ -448,7 +440,7 @@
         if (cached?.data) {
           const ratio = cached.data.ratio;
           const overvalued = ratio >= 3.0;
-          if (document.getElementById('estimated-buffett')) document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
+          if (document.getElementById('estimated-buffett')) document.getElementById('estimated-buffett').textContent = ${ratio.toFixed(2)}%;
           const changeEl = document.getElementById('estimated-buffett-change');
           if (changeEl) {
             changeEl.textContent = overvalued ? '▲ Overvalued' : (ratio >= 2.5 ? '▲ Caution' : '▼ Normal');
@@ -457,7 +449,7 @@
           const inner = document.getElementById('estimated-buffett-threshold');
           const label = document.getElementById('estimated-buffett-label');
           const width = Math.min((ratio / 5) * 100, 100);
-          if (inner) inner.style.width = `${width}%`;
+          if (inner) inner.style.width = ${width}%;
           if (ratio < 2.5) {
             if (inner) inner.style.background = '#28c17d';
             label.textContent='Normal';
@@ -469,7 +461,7 @@
             label.textContent='Overvalued';
           }
           document.getElementById('estimated-buffett-stale').style.display='block';
-          document.getElementById('estimated-buffett-updated').textContent='Updated: '+ new Date(cached.ts).toLocaleTimeString()+' (cached)';
+          document.getElementById('estimated-buffett-updated').textContent='Updated: '+new Date(cached.ts).toLocaleTimeString()+' (cached)';
           setStatus(document.getElementById('estimated-buffett-status'), overvalued ? 'ALERT' : 'OK');
           pushHistory('estimated-buffett', ratio);
           drawSparkline('estimated-buffett-spark', getHistory('estimated-buffett'));
@@ -524,7 +516,7 @@
         const cached=cacheGet('lithium');
         if(cached?.data){
           setCard('lithium', cached.data.price, cached.data.pct,true);
-          const ts=cached.ts? new Date(cached.ts).toLocaleTimeString():'--';
+          const ts=cached.ts?new Date(ccached.ts).toLocaleTimeString():'--';
           document.getElementById('lithium-updated').textContent='Updated: '+ts+' (cached)';
           setStatus(document.getElementById('lithium-status'),'CACHED');
         } else {
@@ -604,10 +596,10 @@
       const contributors = [];
 
       if (yieldc && yieldc.spread < 0) { score += 25; contributors.push('Yield inverted'); }
-      if (est && est.ratio >= 3.0) { score += 30; contributors.push(`Est. Buffett ≥ ${est.ratio.toFixed(2)}`); }
-      if (spy && typeof spy.pct === 'number' && spy.pct <= -1) { score += 10; contributors.push(`SPY down ${spy.pct.toFixed(2)}%`); }
-      if (vixy && typeof vixy.pct === 'number' && vixy.pct >= 5) { score += 10; contributors.push(`VIXY up ${vixy.pct.toFixed(2)}%`); }
-      if (tsla && typeof tsla.pct === 'number' && tsla.pct <= -1.5) { score += 10; contributors.push(`TSLA down ${tsla.pct.toFixed(2)}%`); }
+      if (est && est.ratio >= 3.0) { score += 30; contributors.push(Est. Buffett ≥ ${est.ratio.toFixed(2)}); }
+      if (spy && typeof spy.pct === 'number' && spy.pct <= -1) { score += 10; contributors.push(SPY down ${spy.pct.toFixed(2)}%); }
+      if (vixy && typeof vixy.pct === 'number' && vixy.pct >= 5) { score += 10; contributors.push(VIXY up ${vixy.pct.toFixed(2)}%); }
+      if (tsla && typeof tsla.pct === 'number' && tsla.pct <= -1.5) { score += 10; contributors.push(TSLA down ${tsla.pct.toFixed(2)}%); }
 
       score = Math.min(100, score);
 
@@ -620,14 +612,14 @@
       const color = riskColor(score);
 
       if (marker) {
-        marker.style.left = `${score}%`;
+        marker.style.left = ${score}%;
         marker.style.background = color;
       }
       const needle = document.getElementById('risk-temp-needle');
       if (needle) {
-        needle.style.left = `${score}%`;
+        needle.style.left = ${score}%;
       }
-      if (scoreEl) scoreEl.textContent = `${score}%`;
+      if (scoreEl) scoreEl.textContent = ${score}%;
 
       let statusText = 'Normal';
       if (score >= 70) statusText = 'High Risk';
@@ -656,7 +648,7 @@
         try {
           const order = JSON.parse(saved);
           order.forEach(widgetId => {
-            const card = document.querySelector(`[data-widget="${widgetId}"]`);
+            const card = document.querySelector([data-widget="${widgetId}"]);
             if (card && grid.contains(card)) grid.appendChild(card);
           });
         } catch {}
@@ -695,21 +687,7 @@
       setInterval(refreshRiskTemperature, 30000);
     }
 
-    // Modified to initialize both boot and TradingView widget
-    document.addEventListener('DOMContentLoaded', () => {
-      boot();
-      new TradingView.MiniSymbolWidget({
-        container_id: "vix-index-widget",
-        symbol: "CBOE:VIX",
-        locale: "en",
-        autosize: true,
-        width: "100%",
-        height: "100%",
-        colorTheme: "dark",
-        trendLineColor: "#37a6ef",
-        underLineColor: "rgba(55, 166, 239, 0.15)"
-      });
-    });
+    document.addEventListener('DOMContentLoaded', boot);
   </script>
 </body>
 </html>
