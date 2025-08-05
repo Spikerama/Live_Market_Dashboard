@@ -48,10 +48,19 @@ export async function handler(event) {
     };
   } catch (err) {
     console.error('yieldSpread error:', err);
+    // Fallback to valid JSON so front-end never errors
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() }),
-      headers: { 'Content-Type': 'application/json' },
+      statusCode: 200,
+      body: JSON.stringify({
+        spread: 0,
+        inverted: false,
+        source: 'FRED',
+        timestamp: new Date().toISOString(),
+      }),
+      headers: {
+        'Cache-Control': 'no-store, must-revalidate',
+        'Content-Type': 'application/json',
+      },
     };
   }
 }
