@@ -595,19 +595,16 @@
       refreshRiskTemperature();
     }
 
-    function refreshRiskTemperature() {
-      const now = new Date();
-      const est = cacheGet('estimated-buffett')?.data;
-      const yieldc = cacheGet('yield')?.data;
-      const spy = cacheGet('sp500')?.data;
-      const vixy = cacheGet('vix')?.data;
-      const tsla = cacheGet('tsla')?.data;
+function refreshRiskTemperature() {
+  const now = new Date();
+  const est = cacheGet('estimated-buffett')?.data;
+  const yieldc = cacheGet('yield')?.data;
+  const spy = cacheGet('sp500')?.data;
+  const vixy = cacheGet('vix')?.data;
+  const tsla = cacheGet('tsla')?.data;
 
-      let score = 0;
-      const contributors = [];
-
-      function refreshRiskTemperature() {
-  // … earlier code …
+  let score = 0;
+  const contributors = [];
 
   // 1) Yield curve inverted
   if (yieldc && yieldc.spread < 0) {
@@ -615,13 +612,13 @@
     contributors.push('Yield inverted');
   }
 
- // 2) Smoothly scale Buffett ratio (0–5% → 0–30 points)
-if (est && typeof est.ratio === 'number') {
-  // scale 0–5% Buffett ratio into 0–30 risk points (6 points per %)
-  const buffScore = Math.min(est.ratio, 5) * 6;
-  score += buffScore;
-  contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);
-}
+  // 2) Smoothly scale Buffett ratio (0–5% → 0–30 points)
+  if (est && typeof est.ratio === 'number') {
+    // each % of Buffett ratio gives 6 risk points
+    const buffScore = Math.min(est.ratio, 5) * 6;
+    score += buffScore;
+    contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);
+  }
 
   // 3) SPY down ≥ 1%
   if (spy && typeof spy.pct === 'number' && spy.pct <= -1) {
@@ -641,54 +638,57 @@ if (est && typeof est.ratio === 'number') {
     contributors.push(`TSLA down ${tsla.pct.toFixed(2)}%`);
   }
 
-  // … rest of the gauge-drawing code …
-}
+  // cap the score at 100
+  score = Math.min(100, score);
 
-
-      score = Math.min(100, score);
-
-      const marker = document.getElementById('risk-temp-marker');
-      const labelEl = document.getElementById('risk-temp-status');
-      const scoreEl = document.getElementById('risk-temp-score');
-      const detailsEl = document.getElementById('risk-temp-details');
-      const updatedEl = document.getElementById('risk-temp-updated');
-
-      const color = riskColor(score);
-      
-    console.log(
+  // debug log
+  console.log(
     '[RiskTemp] inputs →',
     { yield: yieldc?.spread, buffett: est?.ratio, spy: spy?.pct, vixy: vixy?.pct, tsla: tsla?.pct },
     '→ score & contributors →',
     { score: score.toFixed(2), contributors }
-    );
+  );
 
-      if (marker) {
-        marker.style.left = `${score}%`;
-        marker.style.background = color;
-      }
-      const needle = document.getElementById('risk-temp-needle');
-      if (needle) needle.style.left = `${score}%`;
-      if (scoreEl) scoreEl.textContent = `${score}%`;
+  // draw gauge
+  const marker = document.getElementById('risk-temp-marker');
+  const needle  = document.getElementById('risk-temp-needle');
+  const labelEl = document.getElementById('risk-temp-status');
+  const scoreEl = document.getElementById('risk-temp-score');
+  const details = document.getElementById('risk-temp-details');
+  const updated = document.getElementById('risk-temp-updated');
+  const color   = riskColor(score);
 
-      let statusText = 'Normal';
-      if (score >= 70) statusText = 'High Risk';
-      else if (score >= 40) statusText = 'Elevated';
+  if (marker) {
+    marker.style.left      = `${score}%`;
+    marker.style.background = color;
+  }
+  if (needle) {
+    needle.style.left      = `${score}%`;
+  }
+  if (scoreEl) {
+    scoreEl.textContent    = `${score}%`;
+  }
 
-      if (labelEl) {
-        labelEl.textContent = statusText;
-        labelEl.style.color = color;
-        labelEl.style.background = 'none';
-        labelEl.className = '';
-      }
-      if (detailsEl) detailsEl.textContent = contributors.length ? contributors.join(', ') : 'No major stress signals';
-      if (updatedEl) updatedEl.textContent = 'Updated: ' + now.toLocaleTimeString();
+  let statusText = 'Normal';
+  if (score >= 70) statusText = 'High Risk';
+  else if (score >= 40) statusText = 'Elevated';
 
-      const card = document.getElementById('card-risk-temp');
-      if (card) {
-        if (score >= 70) card.classList.add('alert');
-        else card.classList.remove('alert');
-      }
-    }
+  if (labelEl) {
+    labelEl.textContent = statusText;
+    labelEl.style.color = color;
+    labelEl.style.background = 'none';
+    labelEl.className = '';
+  }
+  if (details) details.textContent = contributors.length ? contributors.join(', ') : 'No major stress signals';
+  if (updated) updated.textContent = 'Updated: ' + now.toLocaleTimeString();
+
+  const card = document.getElementById('card-risk-temp');
+  if (card) {
+    if (score >= 70) card.classList.add('alert');
+    else card.classList.remove('alert');
+  }
+}
+
 
     function initDragReorder() {
       const grid = document.getElementById('dashboard-grid');
