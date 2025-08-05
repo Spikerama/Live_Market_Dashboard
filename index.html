@@ -596,58 +596,63 @@
     }
 
 function refreshRiskTemperature() {
-  const now = new Date();
-  const est = cacheGet('estimated-buffett')?.data;
-  const yieldc = cacheGet('yield')?.data;
-  const spy = cacheGet('sp500')?.data;
-  const vixy = cacheGet('vix')?.data;
-  const tsla = cacheGet('tsla')?.data;
+  const now     = new Date();
+  const est     = cacheGet('estimated-buffett')?.data;
+  const yieldc  = cacheGet('yield')?.data;
+  const spy     = cacheGet('sp500')?.data;
+  const vixy    = cacheGet('vix')?.data;
+  const tsla    = cacheGet('tsla')?.data;
+  const lithium = cacheGet('lithium')?.data;
 
   let score = 0;
   const contributors = [];
 
-  // 1) Yield curve inverted
-  if (yieldc && yieldc.spread < 0) {
-    score += 25;
-    contributors.push('Yield inverted');
-  }
-
-  // 2) Smoothly scale Buffett ratio (0–5% → 0–30 points)
+  // 1) Buffett valuation: 0–5% → 0–30 pts
   if (est && typeof est.ratio === 'number') {
-    // each % of Buffett ratio gives 6 risk points
     const buffScore = Math.min(est.ratio, 5) * 6;
     score += buffScore;
-    contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);
+    contributors.push(`Buffett ${est.ratio.toFixed(2)}% → ${buffScore.toFixed(1)}`);
   }
 
-  // 3) SPY down ≥ 1%
-  if (spy && typeof spy.pct === 'number' && spy.pct <= -1) {
-    score += 10;
-    contributors.push(`SPY down ${spy.pct.toFixed(2)}%`);
+  // 2) Yield spread: +2…–1 pp → 0–25 pts
+  if (yieldc && typeof yieldc.spread === 'number') {
+    const raw       = Math.max(Math.min(yieldc.spread, 2), -1);
+    const yieldScore = (2 - raw) / 3 * 25;
+    score += yieldScore;
+    contributors.push(`Yield ${yieldc.spread.toFixed(2)}% → ${yieldScore.toFixed(1)}`);
   }
 
-  // 4) VIXY up ≥ 5%
-  if (vixy && typeof vixy.pct === 'number' && vixy.pct >= 5) {
-    score += 10;
-    contributors.push(`VIXY up ${vixy.pct.toFixed(2)}%`);
+  // 3) SPY drop: 0…–3% → 0–15 pts
+  if (spy && typeof spy.pct === 'number') {
+    const spyScore = Math.min(Math.max(-spy.pct, 0), 3) / 3 * 15;
+    score += spyScore;
+    contributors.push(`SPY ${spy.pct.toFixed(2)}% → ${spyScore.toFixed(1)}`);
   }
 
-  // 5) TSLA down ≥ 1.5%
-  if (tsla && typeof tsla.pct === 'number' && tsla.pct <= -1.5) {
-    score += 10;
-    contributors.push(`TSLA down ${tsla.pct.toFixed(2)}%`);
+  // 4) VIXY rise: 0…+5% → 0–15 pts
+  if (vixy && typeof vixy.pct === 'number') {
+    const vixScore = Math.min(Math.max(vixy.pct, 0), 5) / 5 * 15;
+    score += vixScore;
+    contributors.push(`VIXY ${vixy.pct.toFixed(2)}% → ${vixScore.toFixed(1)}`);
   }
 
-  // cap the score at 100
+  // 5) TSLA drop: 0…–5% → 0–10 pts
+  if (tsla && typeof tsla.pct === 'number') {
+    const tslaScore = Math.min(Math.max(-tsla.pct, 0), 5) / 5 * 10;
+    score += tslaScore;
+    contributors.push(`TSLA ${tsla.pct.toFixed(2)}% → ${tslaScore.toFixed(1)}`);
+  }
+
+  // 6) Lithium move: 0…±5% → 0–5 pts
+  if (lithium && typeof lithium.pct === 'number') {
+    const litScore = Math.min(Math.abs(lithium.pct), 5) / 5 * 5;
+    score += litScore;
+    contributors.push(`Lithium ${lithium.pct.toFixed(2)}% → ${litScore.toFixed(1)}`);
+  }
+
+  // cap and log
   score = Math.min(100, score);
-
-  // debug log
-  console.log(
-    '[RiskTemp] inputs →',
-    { yield: yieldc?.spread, buffett: est?.ratio, spy: spy?.pct, vixy: vixy?.pct, tsla: tsla?.pct },
-    '→ score & contributors →',
-    { score: score.toFixed(2), contributors }
-  );
+  console.log('[RiskTemp] contributors →', contributors, 'score →', score.toFixed(2));
 
   // draw gauge
   const marker = document.getElementById('risk-temp-marker');
@@ -658,16 +663,9 @@ function refreshRiskTemperature() {
   const updated = document.getElementById('risk-temp-updated');
   const color   = riskColor(score);
 
-  if (marker) {
-    marker.style.left      = `${score}%`;
-    marker.style.background = color;
-  }
-  if (needle) {
-    needle.style.left      = `${score}%`;
-  }
-  if (scoreEl) {
-    scoreEl.textContent    = `${score}%`;
-  }
+  if (marker) marker.style.left = `${score}%`, marker.style.background = color;
+  if (needle) needle.style.left = `${score}%`;
+  if (scoreEl) scoreEl.textContent = `${score}%`;
 
   let statusText = 'Normal';
   if (score >= 70) statusText = 'High Risk';
@@ -675,11 +673,10 @@ function refreshRiskTemperature() {
 
   if (labelEl) {
     labelEl.textContent = statusText;
-    labelEl.style.color = color;
+    labelEl.style.color   = color;
     labelEl.style.background = 'none';
-    labelEl.className = '';
   }
-  if (details) details.textContent = contributors.length ? contributors.join(', ') : 'No major stress signals';
+  if (details) details.textContent = contributors.join(', ');
   if (updated) updated.textContent = 'Updated: ' + now.toLocaleTimeString();
 
   const card = document.getElementById('card-risk-temp');
@@ -688,6 +685,7 @@ function refreshRiskTemperature() {
     else card.classList.remove('alert');
   }
 }
+
 
 
     function initDragReorder() {
