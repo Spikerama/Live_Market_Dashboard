@@ -607,7 +607,7 @@
       const contributors = [];
 
       if (yieldc && yieldc.spread < 0) { score += 25; contributors.push('Yield inverted'); }
-      if (est && est.ratio >= 3.0) { score += 30; contributors.push(`Est. Buffett ≥ ${est.ratio.toFixed(2)}`); }
+      if (est && typeof est.ratio === 'number') { // scale 0–5% Buffett ratio into 0–30 risk points (6 points per %) const buffScore = Math.min(est.ratio, 5) * 6; score += buffScore; contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);}
       if (spy && typeof spy.pct === 'number' && spy.pct <= -1) { score += 10; contributors.push(`SPY down ${spy.pct.toFixed(2)}%`); }
       if (vixy && typeof vixy.pct === 'number' && vixy.pct >= 5) { score += 10; contributors.push(`VIXY up ${vixy.pct.toFixed(2)}%`); }
       if (tsla && typeof tsla.pct === 'number' && tsla.pct <= -1.5) { score += 10; contributors.push(`TSLA down ${tsla.pct.toFixed(2)}%`); }
