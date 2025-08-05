@@ -3,10 +3,6 @@
   "version": "1.0.0",
   "description": "Live Market Dashboard with Netlify Functions",
   "type": "module",
-  "main": "index.html",
-  "scripts": {
-    "start": "netlify dev"
-  },
   "dependencies": {
     "node-fetch": "^3.3.2"
   }
