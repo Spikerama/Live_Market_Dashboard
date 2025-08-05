@@ -668,8 +668,9 @@ function refreshRiskTemperature() {
   if (scoreEl) scoreEl.textContent = `${score.toFixed(1)}%`;
 
   let statusText = 'Normal';
-  if (score >= 70) statusText = 'High Risk';
-  else if (score >= 40) statusText = 'Elevated';
+  if (score >= 65)      statusText = 'High Risk';
+  else if (score >= 40) statusText = 'Caution';
+  else if (score >= 25) statusText = 'Elevated';
 
   if (labelEl) {
     labelEl.textContent = statusText;
