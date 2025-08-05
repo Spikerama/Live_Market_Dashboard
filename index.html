@@ -615,12 +615,13 @@
     contributors.push('Yield inverted');
   }
 
-  // 2) Smoothly scale Buffett ratio (0–5% → 0–30 points)
-  if (est && typeof est.ratio === 'number') {
-    const buffScore = Math.min(est.ratio, 5) * 6;
-    score += buffScore;
-    contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);
-  }
+ // 2) Smoothly scale Buffett ratio (0–5% → 0–30 points)
+if (est && typeof est.ratio === 'number') {
+  // scale 0–5% Buffett ratio into 0–30 risk points (6 points per %)
+  const buffScore = Math.min(est.ratio, 5) * 6;
+  score += buffScore;
+  contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);
+}
 
   // 3) SPY down ≥ 1%
   if (spy && typeof spy.pct === 'number' && spy.pct <= -1) {
