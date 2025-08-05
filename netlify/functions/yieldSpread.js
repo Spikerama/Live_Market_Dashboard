@@ -1,4 +1,6 @@
-import fetch from 'node-fetch'; // if using standard Netlify JS functions; adjust if using Edge runtime
+// netlify/functions/yieldSpread.js
+
+// No need to import 'node-fetch' on Netlify Node 18 – global fetch is available
 
 const FRED_KEY = process.env.FRED_KEY;
 if (!FRED_KEY) {
@@ -14,7 +16,6 @@ const fetchLatestObservation = async (series_id) => {
     throw new Error(`No observations array for ${series_id}`);
   }
   const todayStr = new Date().toISOString().slice(0, 10);
-  // Find first observation with a numeric value that's not in the future
   const obs = json.observations.find(o => o.value !== '.' && o.date <= todayStr);
   if (!obs) throw new Error(`No valid recent observation for ${series_id}`);
   const val = parseFloat(obs.value);
@@ -46,8 +47,9 @@ export async function handler(event) {
         'Content-Type': 'application/json',
       },
     };
+
   } catch (err) {
-    console.error('yieldSpread error:', err);
+    console.error('yieldSpread error, falling back to 0:', err);
     // Fallback to valid JSON so front-end never errors
     return {
       statusCode: 200,
