@@ -665,7 +665,7 @@ function refreshRiskTemperature() {
 
   if (marker) marker.style.left = `${score}%`, marker.style.background = color;
   if (needle) needle.style.left = `${score}%`;
-  if (scoreEl) scoreEl.textContent = `${score}%`;
+  if (scoreEl) scoreEl.textContent = `${score.toFixed(1)}%`;
 
   let statusText = 'Normal';
   if (score >= 70) statusText = 'High Risk';
