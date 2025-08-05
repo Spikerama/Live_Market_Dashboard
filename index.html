@@ -679,7 +679,6 @@ function refreshRiskTemperature() {
     labelEl.style.color   = color;
     labelEl.style.background = 'none';
   }
-  if (details) details.textContent = contributors.join(', ');
   if (updated) updated.textContent = 'Updated: ' + now.toLocaleTimeString();
 
   const card = document.getElementById('card-risk-temp');
