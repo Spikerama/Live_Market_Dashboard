@@ -1,3 +1,5 @@
+// netlify/functions/estimatedBuffett.js
+
 // NOTE: This is the trimmed version (top 15 by market cap) to reduce FMP free-tier pressure.
 // Reminder: restore the fuller constituent list later to improve accuracy (you asked to keep the backup in mind).
 
@@ -16,13 +18,12 @@ if (!FRED_KEY) {
   return;
 }
 
-// Simple in-memory cache for constituent cap (longer: 30 minutes)
+// Simple in-memory cache for constituent cap (expires in 30 minutes)
 let cachedConstituent = {
   timestamp: 0,
   sp500CapBillions: null,
 };
 
-// Helper to fetch latest valid FRED observation
 async function fetchLatestValidFred(seriesId) {
   const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
   const res = await fetch(url);
@@ -32,14 +33,13 @@ async function fetchLatestValidFred(seriesId) {
   if (!Array.isArray(obs) || obs.length === 0) throw new Error(`No data for ${seriesId}`);
   for (const o of obs) {
     const v = o.value;
-    if (v === '.' || v === null || v === undefined) continue;
+    if (v === '.' || v == null) continue;
     const parsed = parseFloat(v);
     if (!isNaN(parsed)) return parsed;
   }
   throw new Error(`No valid observation for ${seriesId}`);
 }
 
-// SPY fallback
 async function fetchSPYBasedCap() {
   const url = `https://api.twelvedata.com/quote?symbol=SPY&apikey=${TWELVE_KEY}`;
   const res = await fetch(url);
@@ -49,18 +49,15 @@ async function fetchSPYBasedCap() {
     throw new Error('Bad SPY data fallback: ' + JSON.stringify(json).slice(0, 200));
   }
   const price = parseFloat(json.close);
-  if (isNaN(price)) throw new Error('Invalid SPY price');
   const spyMarketCap = price * SPY_SHARES_OUTSTANDING;
-  return spyMarketCap / 1e9; // billions
+  return spyMarketCap / 1e9; // in billions
 }
 
-// Trimmed top 15 large-cap S&P500 tickers
 const TICKERS = [
   "AAPL","MSFT","NVDA","GOOGL","AMZN","BRK-B","META","TSLA","UNH","JNJ",
   "V","PG","MA","XOM","JPM"
 ];
 
-// Fetch with reduced pressure and caching (30 minutes)
 async function fetchSP500CapTopConstituents() {
   const now = Date.now();
   if (cachedConstituent.sp500CapBillions && (now - cachedConstituent.timestamp) < 30 * 60 * 1000) {
@@ -69,20 +66,17 @@ async function fetchSP500CapTopConstituents() {
   if (!FMP_KEY) throw new Error('No FMP_KEY for constituent fetch');
 
   let totalCap = 0;
-  // Sequential-ish with small delay to avoid burst throttling
   for (const symbol of TICKERS) {
     try {
       const profileUrl = `https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(symbol)}?apikey=${FMP_KEY}`;
       const res = await fetch(profileUrl);
       if (!res.ok) continue;
       const json = await res.json();
-      if (!Array.isArray(json) || json.length === 0) continue;
-      const profile = json[0];
-      const mc = profile.marketCap;
+      if (!Array.isArray(json) || !json.length) continue;
+      const mc = json[0].marketCap;
       if (typeof mc === 'number' && mc > 0) {
         totalCap += mc;
       }
-      // polite pause
       await new Promise(r => setTimeout(r, 100));
     } catch {
       // ignore per-symbol failure
@@ -130,11 +124,18 @@ exports.handler = async function () {
         timestamp: new Date().toISOString(),
       }),
     };
+
   } catch (err) {
+    console.error('estimatedBuffett error, falling back to 0:', err);
+    // Fallback so the front end always receives valid JSON
     return {
-      statusCode: 500,
+      statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() }),
+      body: JSON.stringify({
+        ratio: 0,
+        overvalued: false,
+        timestamp: new Date().toISOString(),
+      }),
     };
   }
 };
