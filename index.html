@@ -368,6 +368,13 @@
       }
       refreshRiskTemperature();
     }
+      console.log('[RiskTemp] firing – cached values:', {
+  sp:   cacheGet('sp500')?.data,
+  yl:   cacheGet('yield')?.data,
+  eb:   cacheGet('estimated-buffett')?.data,
+  vxy:  cacheGet('vix')?.data,
+  tsla: cacheGet('tsla')?.data
+});
 
     async function refreshYieldCurve() {
       const spinner = document.getElementById('yield-spinner');
