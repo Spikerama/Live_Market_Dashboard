@@ -606,11 +606,43 @@
       let score = 0;
       const contributors = [];
 
-      if (yieldc && yieldc.spread < 0) { score += 25; contributors.push('Yield inverted'); }
-      if (est && typeof est.ratio === 'number') { // scale 0–5% Buffett ratio into 0–30 risk points (6 points per %) const buffScore = Math.min(est.ratio, 5) * 6; score += buffScore; contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);}
-      if (spy && typeof spy.pct === 'number' && spy.pct <= -1) { score += 10; contributors.push(`SPY down ${spy.pct.toFixed(2)}%`); }
-      if (vixy && typeof vixy.pct === 'number' && vixy.pct >= 5) { score += 10; contributors.push(`VIXY up ${vixy.pct.toFixed(2)}%`); }
-      if (tsla && typeof tsla.pct === 'number' && tsla.pct <= -1.5) { score += 10; contributors.push(`TSLA down ${tsla.pct.toFixed(2)}%`); }
+      function refreshRiskTemperature() {
+  // … earlier code …
+
+  // 1) Yield curve inverted
+  if (yieldc && yieldc.spread < 0) {
+    score += 25;
+    contributors.push('Yield inverted');
+  }
+
+  // 2) Smoothly scale Buffett ratio (0–5% → 0–30 points)
+  if (est && typeof est.ratio === 'number') {
+    const buffScore = Math.min(est.ratio, 5) * 6;
+    score += buffScore;
+    contributors.push(`Buffett ${est.ratio.toFixed(2)}%`);
+  }
+
+  // 3) SPY down ≥ 1%
+  if (spy && typeof spy.pct === 'number' && spy.pct <= -1) {
+    score += 10;
+    contributors.push(`SPY down ${spy.pct.toFixed(2)}%`);
+  }
+
+  // 4) VIXY up ≥ 5%
+  if (vixy && typeof vixy.pct === 'number' && vixy.pct >= 5) {
+    score += 10;
+    contributors.push(`VIXY up ${vixy.pct.toFixed(2)}%`);
+  }
+
+  // 5) TSLA down ≥ 1.5%
+  if (tsla && typeof tsla.pct === 'number' && tsla.pct <= -1.5) {
+    score += 10;
+    contributors.push(`TSLA down ${tsla.pct.toFixed(2)}%`);
+  }
+
+  // … rest of the gauge-drawing code …
+}
+
 
       score = Math.min(100, score);
 
