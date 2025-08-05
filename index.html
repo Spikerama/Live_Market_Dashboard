@@ -654,6 +654,13 @@ if (est && typeof est.ratio === 'number') {
       const updatedEl = document.getElementById('risk-temp-updated');
 
       const color = riskColor(score);
+      
+    console.log(
+    '[RiskTemp] inputs →',
+    { yield: yieldc?.spread, buffett: est?.ratio, spy: spy?.pct, vixy: vixy?.pct, tsla: tsla?.pct },
+    '→ score & contributors →',
+    { score: score.toFixed(2), contributors }
+    );
 
       if (marker) {
         marker.style.left = `${score}%`;
