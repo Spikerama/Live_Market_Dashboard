@@ -1,39 +1,49 @@
-// netlify/functions/buffett.js
-import fetch from "node-fetch";
+import fetch from 'node-fetch';
 
 exports.handler = async function(event) {
   try {
-    // 1) hit the real‐time JSON on buffettindicator.net
+    // fetch the live Buffett Indicator JSON, faking a browser UA so we don’t get 403
     const res = await fetch(
-      "https://buffettindicator.net/wp-content/themes/flashmag/data/movement.json"
+      'https://buffettindicator.net/wp-content/themes/flashmag/data/movement.json',
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/json'
+        }
+      }
     );
+
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} fetching movement.json`);
     }
 
-    // 2) parse out the live_price
-    const payload = await res.json();
-    const ratio   = parseFloat(payload.live_price);
+    const json = await res.json();
+    const ratio = parseFloat(json.live_price);
     if (isNaN(ratio)) {
-      throw new Error(`Invalid live_price: ${payload.live_price}`);
+      throw new Error(`Invalid live_price in response: ${json.live_price}`);
     }
 
-    // 3) return just the ratio (you can add other fields if you like)
     return {
       statusCode: 200,
       headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify({ ratio })
+      body: JSON.stringify({
+        ratio,
+        day_low:       parseFloat(json.day_low),
+        day_high:      parseFloat(json.day_high),
+        previous_close:parseFloat(json.previous_close),
+        timestamp:     json.timestamp
+      })
     };
   } catch (err) {
-    console.error("buffett.js error:", err);
+    console.error('buffett.js error:', err);
     return {
       statusCode: 500,
       headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
       },
       body: JSON.stringify({ error: err.message })
     };
