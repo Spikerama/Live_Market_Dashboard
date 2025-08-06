@@ -227,139 +227,309 @@
     </div>
   </div>
 
-<script>
-  const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
+  <script>
+    const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
 
-  function cacheSet(key, obj) { /*…*/ }
-  function cacheGet(key) { /*…*/ }
-
-  function setStatus(el, type) { /*…*/ }
-
-  async function fetchWithRetry(url, attempts = 3, baseDelay = 300) { /*…*/ }
-
-  async function getTwelveQuote(symbol) { /*…*/ }
-
-  function setCard(id, value, change, useCache = false) { /*…*/ }
-
-  function pushHistory(key, value) { /*…*/ }
-  function getHistory(key) { /*…*/ }
-  function drawSparkline(containerId, data) { /*…*/ }
-
-  function interpolateColor(from, to, t) { /*…*/ }
-
-  function riskColor(score) {
-    if (score <= 50) {
-      return interpolateColor('#28c17d','#ffcd3c', score/50);
-    } else {
-      return interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
+    function cacheSet(key, obj) {
+      try {
+        localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj }));
+      } catch {}
     }
-  }
-
-  // —————————————————————————————————————
-  // 1) Unified data refresh for **all** widgets
-  // —————————————————————————————————————
-  async function refreshAllWidgets() {
-    const bust = Date.now();
-
-    // a) show every spinner
-    ['sp500','yield','estimated-buffett','buffett','tsla','lithium','vix','vix-index']
-      .forEach(id => {
-        const s = document.getElementById(id + '-spinner');
-        if (s) s.style.display = 'inline-block';
-      });
-
-    // b) fetch consolidated payload
-    const res  = await fetch(`/.netlify/functions/fetchAllData?bust=${bust}`);
-    const data = await res.json();
-
-    // c) SPY
-    if (data.spy?.pct != null) {
-      const price = parseFloat(data.spy.close ?? data.spy.price);
-      const pct   = parseFloat(data.spy.pct);
-      setCard('sp500', price, pct, false);
-      document.getElementById('sp500-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-      setStatus(document.getElementById('sp500-status'), 'LIVE');
-      pushHistory('sp500', price);
-      drawSparkline('sp500-spark', getHistory('sp500'));
-    } else {
-      setCard('sp500', null, null);
-    }
-
-    // d) Yield Curve
-    if (data.yieldCurve?.spread != null) {
-      const spread   = data.yieldCurve.spread;
-      const inverted = data.yieldCurve.inverted;
-      document.getElementById('yield').textContent       = `${spread.toFixed(2)}%`;
-      document.getElementById('yield-change').textContent = `${spread >= 0 ? '▲' : '▼'} ${inverted ? 'Inverted' : 'Normal'}`;
-      document.getElementById('yield-stale').style.display = 'none';
-      document.getElementById('yield-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-      setStatus(document.getElementById('yield-status'), inverted ? 'INVERTED' : 'NORMAL');
-      pushHistory('yield', spread);
-      drawSparkline('yield-spark', getHistory('yield'));
-    } else {
-      setCard('yield', null, null);
-    }
-
-    // e) Estimated Buffett
-    if (data.estimatedBuffett?.ratio != null) {
-      const ratio = data.estimatedBuffett.ratio;
-      // ← reuse your existing estimatedBuffett DOM logic here…
-    } else {
-      setCard('estimated-buffett', null, null);
-    }
-
-    // f) True Buffett
-    if (data.buffett?.ratio != null) {
-      const ratio = data.buffett.ratio;
-      document.getElementById('buffett').textContent         = `${ratio.toFixed(2)}%`;
-      document.getElementById('buffett-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-      const statusEl = document.getElementById('buffett-status');
-      if (ratio >= 3.0) {
-        statusEl.textContent = 'ALERT';
-        statusEl.classList.add('badge-error');
-        statusEl.classList.remove('badge-live');
-      } else {
-        statusEl.textContent = 'OK';
-        statusEl.classList.add('badge-live');
-        statusEl.classList.remove('badge-error');
+    function cacheGet(key) {
+      try {
+        return JSON.parse(localStorage.getItem(key));
+      } catch {
+        return null;
       }
-    } else {
-      setCard('buffett', null, null);
     }
 
-    // g) TSLA, Lithium, VIX, VIX Index
-    //    ← follow same pattern: parse data.tsla.pct, data.lithium.pct, data.vixy.pct, data.vixIndex.price etc.
+    function setStatus(el, type) {
+      if (!el) return;
+      el.classList.remove('badge-live', 'badge-cached', 'badge-error');
+      el.classList.add('badge');
+      if (type === 'LIVE') {
+        el.textContent = 'LIVE';
+        el.classList.add('badge-live');
+      } else if (type === 'CACHED') {
+        el.textContent = 'CACHED';
+        el.classList.add('badge-cached');
+      } else if (type === 'ERROR') {
+        el.textContent = 'ERROR';
+        el.classList.add('badge-error');
+      } else {
+        el.textContent = type;
+      }
+    }
 
-    // h) recalc aggregate meter
-    if (typeof refreshRiskTemperature === 'function') {
+    async function fetchWithRetry(url, attempts = 3, baseDelay = 300) {
+      for (let i = 0; i < attempts; i++) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (e) {
+          if (i === attempts - 1) throw e;
+          await new Promise(r => setTimeout(r, baseDelay * (i + 1)));
+        }
+      }
+    }
+
+    async function getTwelveQuote(symbol) {
+      const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY}`;
+      const json = await fetchWithRetry(url);
+      if (!json || json.status === 'error' || typeof json.close === 'undefined') {
+        throw new Error(`Bad data for ${symbol}`);
+      }
+      return json;
+    }
+
+    function setCard(id, value, change, useCache = false) {
+      const valEl    = document.getElementById(id);
+      const changeEl = document.getElementById(id + '-change');
+      const staleEl  = document.getElementById(id + '-stale');
+      const statusEl = document.getElementById(id + '-status');
+      if (value === null || value === undefined || isNaN(value)) {
+        if (valEl)    valEl.textContent    = 'Error';
+        if (changeEl) changeEl.textContent = '';
+        if (staleEl)  staleEl.style.display = 'none';
+        setStatus(statusEl, 'ERROR');
+        return;
+      }
+      if (valEl)    valEl.textContent    = parseFloat(value).toFixed(2);
+      if (typeof change === 'number' && changeEl) {
+        const arrow = change >= 0 ? '▲' : '▼';
+        changeEl.textContent = `${arrow} ${Math.abs(change).toFixed(2)}%`;
+        changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+      }
+      if (staleEl) staleEl.style.display = useCache ? 'block' : 'none';
+    }
+
+    function pushHistory(key, value) {
+      try {
+        const raw = localStorage.getItem(`spark_${key}`);
+        let arr   = raw ? JSON.parse(raw) : [];
+        arr.push(value);
+        if (arr.length > 30) arr = arr.slice(-30);
+        localStorage.setItem(`spark_${key}`, JSON.stringify(arr));
+      } catch {}
+    }
+    function getHistory(key) {
+      try {
+        const raw = localStorage.getItem(`spark_${key}`);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function drawSparkline(containerId, data) {
+      const w = 100, h = 28;
+      if (!data || data.length === 0) {
+        document.getElementById(containerId).innerHTML = '';
+        return;
+      }
+      const max   = Math.max(...data);
+      const min   = Math.min(...data);
+      const range = max - min || 1;
+      let path = '';
+      data.forEach((v, i) => {
+        const x = (i / (data.length - 1)) * w;
+        const y = h - ((v - min) / range) * h;
+        path += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+      });
+      const svg = `
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="sparkline">
+          <path d="${path}" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+      document.getElementById(containerId).innerHTML = svg;
+    }
+
+    function interpolateColor(from, to, t) {
+      const f   = hex => parseInt(hex.replace('#',''),16);
+      const c1  = f(from),  c2  = f(to);
+      const r   = (c => (c>>16)&255)(c1),  g   = (c=> (c>>8)&255)(c1),  b   = (c=>c&255)(c1);
+      const r2  = (c => (c>>16)&255)(c2),  g2  = (c => (c>>8)&255)(c2),  b2  = (c=>c&255)(c2);
+      const rn  = Math.round(r + (r2 - r) * t),
+            gn  = Math.round(g + (g2 - g) * t),
+            bn  = Math.round(b + (b2 - b) * t);
+      return `rgb(${rn},${gn},${bn})`;
+    }
+
+    function riskColor(score) {
+      if (score <= 50) {
+        return interpolateColor('#28c17d','#ffcd3c', score/50);
+      } else {
+        return interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
+      }
+    }
+
+    function refreshRiskTemperature() {
+      const now     = new Date();
+      const est     = cacheGet('estimatedBuffett')?.data;
+      const yld     = cacheGet('yieldCurve')?.data;
+      const spy     = cacheGet('spy')?.data;
+      const vxy     = cacheGet('vixy')?.data;
+      const tsla    = cacheGet('tsla')?.data;
+      const lit     = cacheGet('lithium')?.data;
+
+      let score = 0;
+      const contributors = [];
+
+      if (est && typeof est.ratio === 'number') {
+        const buffScore = Math.min(est.ratio, 5) * 6;
+        score += buffScore;
+        contributors.push(`Buffett ${est.ratio.toFixed(2)}% → ${buffScore.toFixed(1)}`);
+      }
+      if (yld && typeof yld.spread === 'number') {
+        const raw        = Math.max(Math.min(yld.spread, 2), -1);
+        const yieldScore = (2 - raw) / 3 * 25;
+        score += yieldScore;
+        contributors.push(`Yield ${yld.spread.toFixed(2)}% → ${yieldScore.toFixed(1)}`);
+      }
+      if (spy && typeof spy.pct === 'number') {
+        const spyScore = Math.min(Math.max(-spy.pct, 0), 3) / 3 * 15;
+        score += spyScore;
+        contributors.push(`SPY ${spy.pct.toFixed(2)}% → ${spyScore.toFixed(1)}`);
+      }
+      if (vxy && typeof vxy.pct === 'number') {
+        const vxyScore = Math.min(Math.max(vxy.pct, 0), 5) / 5 * 15;
+        score += vxyScore;
+        contributors.push(`VIXY ${vxy.pct.toFixed(2)}% → ${vxyScore.toFixed(1)}`);
+      }
+      if (tsla && typeof tsla.pct === 'number') {
+        const tsScore = Math.min(Math.max(-tsla.pct, 0), 5) / 5 * 10;
+        score += tsScore;
+        contributors.push(`TSLA ${tsla.pct.toFixed(2)}% → ${tsScore.toFixed(1)}`);
+      }
+      if (lit && typeof lit.pct === 'number') {
+        const litScore = Math.min(Math.abs(lit.pct), 5) / 5 * 5;
+        score += litScore;
+        contributors.push(`Lithium ${lit.pct.toFixed(2)}% → ${litScore.toFixed(1)}`);
+      }
+
+      score = Math.min(100, score);
+      const marker = document.getElementById('risk-temp-marker');
+      const needle = document.getElementById('risk-temp-needle');
+      const label  = document.getElementById('risk-temp-status');
+      const scoreEl= document.getElementById('risk-temp-score');
+      const updated= document.getElementById('risk-temp-updated');
+      const color  = riskColor(score);
+
+      if (marker) marker.style.left = `${score}%`, marker.style.background = color;
+      if (needle) needle.style.left = `${score}%`;
+      if (scoreEl) scoreEl.textContent = `${score.toFixed(1)}%`;
+
+      let statusText = 'Normal';
+      if      (score >= 65) statusText = 'High Risk';
+      else if (score >= 40) statusText = 'Caution';
+      else if (score >= 25) statusText = 'Elevated';
+
+      if (label) {
+        label.textContent = statusText;
+        label.style.color = color;
+        label.style.background = 'none';
+      }
+      if (updated) updated.textContent = 'Updated: ' + now.toLocaleTimeString();
+
+      const card = document.getElementById('card-risk-temp');
+      if (card) {
+        score >= 70 ? card.classList.add('alert') : card.classList.remove('alert');
+      }
+    }
+
+    function initDragReorder() {
+      const grid = document.getElementById('dashboard-grid');
+      if (!grid) return;
+      const saved = localStorage.getItem('dashboard_order');
+      if (saved) {
+        try {
+          JSON.parse(saved).forEach(w => {
+            const c = document.querySelector(`[data-widget="${w}"]`);
+            if (c && grid.contains(c)) grid.appendChild(c);
+          });
+        } catch {}
+      }
+      Sortable.create(grid, {
+        animation: 150,
+        handle: 'h2',
+        ghostClass: 'sortable-ghost',
+        onEnd: () => {
+          const order = Array.from(grid.children)
+            .map(c => c.getAttribute('data-widget'))
+            .filter(Boolean);
+          localStorage.setItem('dashboard_order', JSON.stringify(order));
+        }
+      });
+    }
+
+    function updateGlobalTimestamp() {
+      document.getElementById('global-updated').textContent = new Date().toLocaleTimeString();
+    }
+
+    async function refreshAllWidgets() {
+      const bust = Date.now();
+      let results = {};
+      try {
+        const res = await fetch(`/.netlify/functions/fetchAllData?bust=${bust}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        results = await res.json();
+      } catch (e) {
+        console.error('fetchAllData error', e);
+      }
+
+      const update = (key, id, extract) => {
+        const spin  = document.getElementById(id + '-spinner');
+        const upEl  = document.getElementById(id + '-updated');
+        const stat  = document.getElementById(id + '-status');
+        spin && (spin.style.display = 'none');
+
+        const live = results[key];
+        if (live && !live.error) {
+          const { value, change } = extract(live);
+          setCard(id, value, change, false);
+          cacheSet(key, { value, change });
+          setStatus(stat, 'LIVE');
+          upEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+          pushHistory(key, value);
+          drawSparkline(id + '-spark', getHistory(key));
+        } else {
+          const cached = cacheGet(key);
+          if (cached?.data) {
+            const { value, change } = cached.data;
+            setCard(id, value, change, true);
+            setStatus(stat, 'CACHED');
+            upEl.textContent = 'Updated: ' + new Date(cached.ts).toLocaleTimeString() + ' (cached)';
+            pushHistory(key, value);
+            drawSparkline(id + '-spark', getHistory(key));
+          } else {
+            setCard(id, null, null, false);
+            setStatus(stat, 'ERROR');
+            upEl.textContent = 'Updated: --';
+          }
+        }
+      };
+
+      update('spy',             'sp500',            d => ({ value: d.price,    change: d.pct }));
+      update('vixy',            'vix',              d => ({ value: d.price,    change: d.pct }));
+      update('tsla',            'tsla',             d => ({ value: d.price,    change: d.pct }));
+      update('lithium',         'lithium',          d => ({ value: d.price,    change: d.pct }));
+      update('yieldCurve',      'yield',            d => ({ value: d.spread,   change: null }));
+      update('estimatedBuffett','estimated-buffett',d => ({ value: d.ratio,    change: null }));
+      update('buffett',         'buffett',          d => ({ value: d.ratio,    change: null }));
+
       refreshRiskTemperature();
-    }
-  }
-
-  // —————————————————————————————————————
-  // 2) New boot() that uses refreshAllWidgets()
-  // —————————————————————————————————————
-  async function boot() {
-    // initial fetch of everything
-    await refreshAllWidgets();
-
-    // then your usual setup
-    setTimeout(refreshRiskTemperature, 500);
-    updateGlobalTimestamp();
-    initDragReorder();
-
-    // every 2 minutes, refresh all
-    setInterval(async () => {
-      await refreshAllWidgets();
       updateGlobalTimestamp();
-    }, 120000);
+    }
 
-    // redraw risk meter twice a minute
-    setInterval(refreshRiskTemperature, 30000);
-  }
+    async function boot() {
+      await refreshAllWidgets();
+      initDragReorder();
+      setInterval(refreshAllWidgets, 120000);
+      setInterval(refreshRiskTemperature, 30000);
+    }
 
-  document.addEventListener('DOMContentLoaded', boot);
-</script>
+    document.addEventListener('DOMContentLoaded', boot);
+  </script>
 </body>
 </html>
 
