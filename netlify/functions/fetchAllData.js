@@ -1,12 +1,12 @@
 import fetch from 'node-fetch';
 
-// Unified data fetch for all widgets with absolute function URLs
+// Unified data fetch for all widgets with dynamic base URL from request headers
 export async function handler(event) {
   const bust = Date.now();
-  // Determine site base URL from Netlify env vars (production or preview)
-  const baseURL = process.env.DEPLOY_URL || process.env.URL || 'http://localhost:8888';
-  // Ensure no trailing slash
-  const base = baseURL.replace(/\/*$/, '');
+  // Determine protocol and host from incoming request
+  const protocol = event.headers['x-forwarded-proto'] || 'https';
+  const host     = event.headers['host'];
+  const base     = `${protocol}://${host}`;
 
   // Define the endpoints for each widget function
   const endpoints = {
