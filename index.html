@@ -88,7 +88,10 @@
             <div class="temp-marker" id="risk-temp-marker" style="left:0;background:rgba(255,255,255,0.9);"></div>
           </div>
         </div>
-        <div class="temp-label" id="risk-temp-details">Loading...</div>
+        <div class="temp-label" id="risk-temp-details">
+        Weighted aggregate score of all indicators
+        </div>
+
         <div class="timestamp" id="risk-temp-updated">Updated: --</div>
       </div>
 
@@ -644,7 +647,6 @@ function refreshRiskTemperature() {
     labelEl.style.color   = color;
     labelEl.style.background = 'none';
   }
-  if (details) details.textContent = contributors.join(', ');
   if (updated) updated.textContent = 'Updated: ' + now.toLocaleTimeString();
 
   const card = document.getElementById('card-risk-temp');
