@@ -1,10 +1,6 @@
 [build]
-  publish = "."
+  publish   = "."
   functions = "netlify/functions"
 
 [functions]
-  directory = "netlify/functions"
   node_bundler = "esbuild"
-
-[build.processing]
-  skip_processing = true
