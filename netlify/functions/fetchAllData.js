@@ -1,17 +1,22 @@
 import fetch from 'node-fetch';
 
-// Unified data fetch for all widgets
-export async function handler() {
+// Unified data fetch for all widgets with absolute function URLs
+export async function handler(event) {
   const bust = Date.now();
+  // Determine site base URL from Netlify env vars (production or preview)
+  const baseURL = process.env.DEPLOY_URL || process.env.URL || 'http://localhost:8888';
+  // Ensure no trailing slash
+  const base = baseURL.replace(/\/*$/, '');
+
   // Define the endpoints for each widget function
   const endpoints = {
-    spy:            `/.netlify/functions/spy?bust=${bust}`,
-    vixy:           `/.netlify/functions/vixy?bust=${bust}`,
-    tsla:           `/.netlify/functions/tsla?bust=${bust}`,
-    lithium:        `/.netlify/functions/lithium?bust=${bust}`,
-    yieldCurve:     `/.netlify/functions/yieldSpread?bust=${bust}`,
-    estimatedBuffett: `/.netlify/functions/estimatedBuffett?bust=${bust}`,
-    buffett:        `/.netlify/functions/buffett?bust=${bust}`
+    spy:              `${base}/.netlify/functions/spy?bust=${bust}`,
+    vixy:             `${base}/.netlify/functions/vixy?bust=${bust}`,
+    tsla:             `${base}/.netlify/functions/tsla?bust=${bust}`,
+    lithium:          `${base}/.netlify/functions/lithium?bust=${bust}`,
+    yieldCurve:       `${base}/.netlify/functions/yieldSpread?bust=${bust}`,
+    estimatedBuffett: `${base}/.netlify/functions/estimatedBuffett?bust=${bust}`,
+    buffett:          `${base}/.netlify/functions/buffett?bust=${bust}`
   };
 
   const results = {};
