@@ -1,9 +1,0 @@
-{
-  "name": "live-market-dashboard",
-  "version": "1.0.0",
-  "description": "Live Market Dashboard with Netlify Functions",
-  "type": "module",
-  "dependencies": {
-    "node-fetch": "^3.3.2"
-  }
-}
