@@ -1,42 +1,39 @@
 // netlify/functions/buffett.js
-import fetch from 'node-fetch';
+import fetch from "node-fetch";
 
 exports.handler = async function(event) {
   try {
-    // fetch the live Buffett Indicator JSON
+    // 1) hit the real‐time JSON on buffettindicator.net
     const res = await fetch(
-      'https://buffettindicator.net/wp-content/themes/flashmag/data/movement.json'
+      "https://buffettindicator.net/wp-content/themes/flashmag/data/movement.json"
     );
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} fetching movement.json`);
     }
-    const json = await res.json();
-    const ratio = parseFloat(json.live_price);
+
+    // 2) parse out the live_price
+    const payload = await res.json();
+    const ratio   = parseFloat(payload.live_price);
     if (isNaN(ratio)) {
-      throw new Error(`Invalid live_price in response: ${json.live_price}`);
+      throw new Error(`Invalid live_price: ${payload.live_price}`);
     }
 
+    // 3) return just the ratio (you can add other fields if you like)
     return {
       statusCode: 200,
       headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
       },
-      body: JSON.stringify({
-        ratio, 
-        day_low: parseFloat(json.day_low),
-        day_high: parseFloat(json.day_high),
-        previous_close: parseFloat(json.previous_close),
-        timestamp: json.timestamp
-      })
+      body: JSON.stringify({ ratio })
     };
   } catch (err) {
-    console.error('buffett.js error:', err);
+    console.error("buffett.js error:", err);
     return {
       statusCode: 500,
       headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
       },
       body: JSON.stringify({ error: err.message })
     };
