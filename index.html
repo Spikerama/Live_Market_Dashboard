@@ -462,6 +462,76 @@
       }
     }
 
+   async function refreshTrueBuffett() {
+  const spinner = document.getElementById('buffett-spinner');
+  if (spinner) spinner.style.display = 'inline-block';
+
+  // ← your fetch:
+  const res       = await fetch(`/.netlify/functions/buffett?bust=${Date.now()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { ratio } = await res.json();
+
+  // 1) put the number on screen
+  document.getElementById('buffett').textContent = ratio.toFixed(2) + '%';
+
+  // 2) hide the spinner
+  if (spinner) spinner.style.display = 'none';
+
+  // 3) timestamp
+  document.getElementById('buffett-updated')
+          .textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+  // 4) optional status badge logic
+  const statusEl = document.getElementById('buffett-status');
+  if (ratio >= 3.0) {
+    statusEl.textContent = 'ALERT';
+    statusEl.classList.add('badge-error');
+    statusEl.classList.remove('badge-live');
+  } else {
+    statusEl.textContent = 'OK';
+    statusEl.classList.add('badge-live');
+    statusEl.classList.remove('badge-error');
+  }
+
+  // 5) recalc your risk thermometer if you want
+  if (typeof refreshRiskTemperature === 'function') {
+    refreshRiskTemperature();
+  }
+}
+
+
+  try {
+    // <-- this is the one line you asked about:
+    const res  = await fetch(`/.netlify/functions/buffett?bust=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+    const ratio = parseFloat(json.ratio);
+
+    // put it into your Buffett card
+    document.getElementById('buffett').textContent = ratio.toFixed(2) + '%';
+
+    // optionally update status badge if you have one:
+    const statusEl = document.getElementById('buffett-status');
+    statusEl.textContent = ratio > 120 ? 'ALERT' : 'OK';
+    statusEl.classList.toggle('badge-live', ratio <= 120);
+    statusEl.classList.toggle('badge-error', ratio > 120);
+
+    // timestamp
+    document.getElementById('buffett-updated')
+            .textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('True Buffett error', e);
+    document.getElementById('buffett').textContent = 'Error';
+    document.getElementById('buffett-status').textContent = 'ERROR';
+  }
+
+  // if you recalc Risk Temp after every widget:
+  if (typeof refreshRiskTemperature === 'function') {
+    refreshRiskTemperature();
+  }
+}
+}
     async function refreshTSLA() {
       const spinner = document.getElementById('tsla-spinner'); if (spinner) spinner.style.display='inline-block';
       try {
@@ -683,6 +753,7 @@ function refreshRiskTemperature() {
       refreshSPY();
       refreshYieldCurve();
       refreshEstimatedBuffett();
+      refreshTrueBuffett();
       refreshTSLA();
       refreshLithium();
       refreshVIX();
@@ -694,6 +765,7 @@ function refreshRiskTemperature() {
         refreshSPY();
         refreshYieldCurve();
         refreshEstimatedBuffett();
+        refreshTrueBuffett();
         refreshTSLA();
         refreshLithium();
         refreshVIX();
