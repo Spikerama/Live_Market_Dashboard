@@ -4,5 +4,8 @@
   "type": "module",
   "dependencies": {
     "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@netlify/plugin-functions-install-core": "^1.0.1"
   }
 }
