@@ -330,6 +330,45 @@
       el.className = 'change '+(pct>=0?'up':'down');
     });
 
+        // … after the Lithium ETF block …
+
+    // Estimated Buffett
+    apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
+      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
+      const changeEl = document.getElementById('estimated-buffett-change');
+      changeEl.textContent = overvalued
+        ? '▲ Overvalued'
+        : ratio >= 2.5
+          ? '▲ Caution'
+          : '▼ Normal';
+      changeEl.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
+      setStatus(document.getElementById('estimated-buffett-status'),
+        overvalued ? 'ALERT' : 'OK'
+      );
+    });
+
+    // True Buffett
+    apply('buffett', results.buffett, ({ ratio }) => {
+      document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
+      setStatus(
+        document.getElementById('buffett-status'),
+        ratio >= 3.0 ? 'ALERT' : 'OK'
+      );
+    });
+
+    // VIX Index
+    apply('vix-index', results.vixIndex, ({ price, change }) => {
+      document.getElementById('vix-index').textContent = price.toFixed(2);
+      const el = document.getElementById('vix-index-change');
+      el.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+      el.className = 'change ' + (change >= 0 ? 'up' : 'down');
+    });
+
+    // and finally recalc the aggregate gauge:
+    if (typeof refreshRiskTemperature === 'function') {
+      refreshRiskTemperature();
+    }
+
     // Yield Curve (unchanged)
     if (results.yieldCurve?.spread != null) {
       const s = results.yieldCurve.spread;
