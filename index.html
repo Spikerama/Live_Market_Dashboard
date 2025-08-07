@@ -255,21 +255,6 @@
     try { return JSON.parse(localStorage.getItem(`spark_${key}`)) || []; }
     catch { return []; }
   }
-  function drawSparkline(containerId, data) {
-    const w = 100, h = 28;
-    if (!data || !data.length) { document.getElementById(containerId).innerHTML = ''; return; }
-    const max = Math.max(...data), min = Math.min(...data), range = max - min || 1;
-    let path = '';
-    data.forEach((v,i) => {
-      const x = (i/(data.length-1)) * w;
-      const y = h - ((v - min)/range)*h;
-      path += (i===0?'M':' L') + x + ',' + y;
-    });
-    document.getElementById(containerId).innerHTML = `
-      <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-        <path d="${path}" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>`;
-  }
 
   function interpolateColor(from, to, t) {
     const f = hex => parseInt(hex.slice(1),16);
@@ -330,7 +315,6 @@
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
       pushHistory('sp500', price);
-      drawSparkline('sp500-spark', getHistory('sp500'));
     });
 
     // TSLA
@@ -340,7 +324,6 @@
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
       pushHistory('tsla', price);
-      drawSparkline('tsla-spark', getHistory('tsla'));
     });
 
     // VIXY
@@ -350,7 +333,6 @@
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
       pushHistory('vix', price);
-      drawSparkline('vix-spark', getHistory('vix'));
     });
 
     // Lithium ETF
@@ -372,7 +354,6 @@
       document.getElementById('yield-updated').textContent =
         'Updated: ' + new Date().toLocaleTimeString();
       pushHistory('yield', results.yieldCurve.spread);
-      drawSparkline('yield-spark', getHistory('yield'));
     }
 
     // Estimated Buffett (leave your existing code exactly as-is here)
