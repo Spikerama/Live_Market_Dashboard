@@ -258,9 +258,9 @@
       : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
   }
 
-  // --------------------------------------------------
-  // unified fetch + cache‐fallback
-  // --------------------------------------------------
+  // ──────────────────────────────────────────────────────────────
+  // Unified fetch + cache-fallback
+  // ──────────────────────────────────────────────────────────────
   async function refreshAllWidgets() {
     let results = {};
     try {
@@ -336,8 +336,13 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // ──────────────────────────────────────────────────────
-    // **INSERTED: Estimated Buffett**
+    // ──────────────────────────────────────────────────────────────
+    // Guard against an empty {} for Estimated Buffett
+    if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
+      results.estimatedBuffett = { error: 'No data' };
+    }
+
+    // Estimated Buffett
     apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
       document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
       const el = document.getElementById('estimated-buffett-change');
@@ -347,7 +352,7 @@
       el.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
     });
 
-    // **INSERTED: True Buffett**
+    // True Buffett
     apply('buffett', results.buffett, ({ ratio }) => {
       document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
       const statusEl = document.getElementById('buffett-status');
@@ -361,9 +366,8 @@
         statusEl.classList.remove('badge-error');
       }
     });
-    // ──────────────────────────────────────────────────────
 
-    // finally, recalc aggregate gauge
+    // Recalc the aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
     }
