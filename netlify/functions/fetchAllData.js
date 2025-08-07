@@ -79,16 +79,16 @@ export async function handler(event) {
 
   // 4) Lithium ETF (LIT)
   try {
-    results.lithium = await fetchTwelve('LIT');
+    results.lit = await fetchTwelve('LIT');
   } catch (err) {
     if (/credits/.test(err.message) && FMP_KEY) {
       try {
-        results.lithium = await fetchFMP('LIT');
+        results.lit = await fetchFMP('LIT');
       } catch (ferr) {
-        results.lithium = { error: ferr.message };
+        results.lit = { error: ferr.message };
       }
     } else {
-      results.lithium = { error: err.message };
+      results.lit = { error: err.message };
     }
   }
 
