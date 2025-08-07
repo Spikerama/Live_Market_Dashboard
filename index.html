@@ -224,7 +224,6 @@
 <script>
   const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
 
-  // simple cache helpers
   function cacheSet(key, obj) {
     try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); }
     catch {}
@@ -234,172 +233,147 @@
     catch { return null; }
   }
 
-  // badge status helper
   function setStatus(el, type) {
     if (!el) return;
-    el.classList.remove('badge-live','badge-cached','badge-error');
+    el.classList.remove('badge-live', 'badge-cached', 'badge-error');
     el.classList.add('badge');
-    if (type==='LIVE')      el.classList.add('badge-live');
-    else if (type==='CACHED') el.classList.add('badge-cached');
-    else if (type==='ERROR')  el.classList.add('badge-error');
-    el.textContent = type;
+    if (type === 'LIVE')       { el.textContent = 'LIVE'; el.classList.add('badge-live'); }
+    else if (type === 'CACHED'){ el.textContent = 'CACHED'; el.classList.add('badge-cached'); }
+    else if (type === 'ERROR') { el.textContent = 'ERROR'; el.classList.add('badge-error'); }
+    else                       { el.textContent = type; }
   }
 
-  // color interpolation for risk gauge
-  function interpolateColor(a,b,t){
-    const toRgb = hex=>[(parseInt(hex.slice(1),16)>>16)&255, (parseInt(hex.slice(1),16)>>8)&255, parseInt(hex.slice(1),16)&255];
-    const [r1,g1,b1]=toRgb(a), [r2,g2,b2]=toRgb(b);
-    const rn=Math.round(r1+(r2-r1)*t), gn=Math.round(g1+(g2-g1)*t), bn=Math.round(b1+(b2-b1)*t);
+  function interpolateColor(from, to, t) {
+    const f = hex => parseInt(hex.replace('#',''),16);
+    const [r1,g1,b1] = [(f(from)>>16)&255, (f(from)>>8)&255, f(from)&255];
+    const [r2,g2,b2] = [(f(to)>>16)&255,   (f(to)>>8)&255,   f(to)&255];
+    const rn = Math.round(r1 + (r2 - r1)*t);
+    const gn = Math.round(g1 + (g2 - g1)*t);
+    const bn = Math.round(b1 + (b2 - b1)*t);
     return `rgb(${rn},${gn},${bn})`;
   }
-  function riskColor(score){
-    return score<=50
+  function riskColor(score) {
+    return score <= 50
       ? interpolateColor('#28c17d','#ffcd3c', score/50)
       : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
   }
 
-  // preserve your existing implementations here:
-  // function refreshRiskTemperature() { … }
-  // function initDragReorder()       { … }
-  // function updateGlobalTimestamp() { … }
-
   // --------------------------------------------------
-  // Unified fetch + cache‐fallback
+  // unified fetch + cache‐fallback
   // --------------------------------------------------
   async function refreshAllWidgets() {
     let results = {};
     try {
-      const res = await fetch('/.netlify/functions/fetchAllData');
-      results = await res.json();
+      results = await fetch('/.netlify/functions/fetchAllData').then(r => r.json());
     } catch (e) {
       console.error('fetchAllData failed', e);
     }
 
-    function apply(key, live, render) {
-      const cached = cacheGet(key);
+    function apply(key, live, renderer) {
+      const cache = cacheGet(key);
       if (live?.error) {
-        if (cached?.data) {
-          render(cached.data);
-          setStatus(document.getElementById(key+'-status'),'CACHED');
-          document.getElementById(key+'-updated').textContent =
-            'Updated: '+new Date(cached.ts).toLocaleTimeString()+' (cached)';
+        if (cache?.data) {
+          renderer(cache.data);
+          setStatus(document.getElementById(key + '-status'), 'CACHED');
+          document.getElementById(key + '-updated').textContent =
+            'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
         } else {
-          document.getElementById(key).textContent='--';
-          setStatus(document.getElementById(key+'-status'),'ERROR');
+          document.getElementById(key).textContent = '--';
+          setStatus(document.getElementById(key + '-status'), 'ERROR');
         }
       } else if (live) {
-        render(live);
-        setStatus(document.getElementById(key+'-status'),'LIVE');
+        renderer(live);
+        setStatus(document.getElementById(key + '-status'), 'LIVE');
         cacheSet(key, live);
-        document.getElementById(key+'-updated').textContent =
-          'Updated: '+new Date().toLocaleTimeString();
+        document.getElementById(key + '-updated').textContent =
+          'Updated: ' + new Date().toLocaleTimeString();
       } else {
-        document.getElementById(key).textContent='--';
+        document.getElementById(key).textContent = '--';
       }
     }
 
     // SPY
-    apply('sp500', results.spy, ({price,pct})=>{
+    apply('sp500', results.spy, ({ price, pct }) => {
       document.getElementById('sp500').textContent = price.toFixed(2);
       const el = document.getElementById('sp500-change');
-      el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change '+(pct>=0?'up':'down');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
     // TSLA
-    apply('tsla', results.tsla, ({price,pct})=>{
+    apply('tsla', results.tsla, ({ price, pct }) => {
       document.getElementById('tsla').textContent = price.toFixed(2);
       const el = document.getElementById('tsla-change');
-      el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change '+(pct>=0?'up':'down');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
     // VIXY
-    apply('vix', results.vixy, ({price,pct})=>{
+    apply('vix', results.vixy, ({ price, pct }) => {
       document.getElementById('vix').textContent = price.toFixed(2);
       const el = document.getElementById('vix-change');
-      el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change '+(pct>=0?'up':'down');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
     // Lithium ETF
-    apply('lithium', results.lit, ({price,pct})=>{
+    apply('lithium', results.lit, ({ price, pct }) => {
       document.getElementById('lithium').textContent = price.toFixed(2);
       const el = document.getElementById('lithium-change');
-      el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change '+(pct>=0?'up':'down');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
-        // … after the Lithium ETF block …
-
-    // Estimated Buffett
-    apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
-      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
-      const changeEl = document.getElementById('estimated-buffett-change');
-      changeEl.textContent = overvalued
-        ? '▲ Overvalued'
-        : ratio >= 2.5
-          ? '▲ Caution'
-          : '▼ Normal';
-      changeEl.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
-      setStatus(document.getElementById('estimated-buffett-status'),
-        overvalued ? 'ALERT' : 'OK'
-      );
-    });
-
-    // True Buffett
-    apply('buffett', results.buffett, ({ ratio }) => {
-      document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
-      setStatus(
-        document.getElementById('buffett-status'),
-        ratio >= 3.0 ? 'ALERT' : 'OK'
-      );
-    });
-
-    // VIX Index
-    apply('vix-index', results.vixIndex, ({ price, change }) => {
-      document.getElementById('vix-index').textContent = price.toFixed(2);
-      const el = document.getElementById('vix-index-change');
-      el.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
-      el.className = 'change ' + (change >= 0 ? 'up' : 'down');
-    });
-
-    // and finally recalc the aggregate gauge:
-    if (typeof refreshRiskTemperature === 'function') {
-      refreshRiskTemperature();
-    }
-
-    // Yield Curve (unchanged)
+    // Yield Curve
     if (results.yieldCurve?.spread != null) {
-      const s = results.yieldCurve.spread;
+      const s = results.yieldCurve.spread, inv = results.yieldCurve.inverted;
       document.getElementById('yield').textContent = `${s.toFixed(2)}%`;
       const el = document.getElementById('yield-change');
-      el.textContent = `${s>=0?'▲':'▼'} ${results.yieldCurve.inverted?'Inverted':'Normal'}`;
-      el.className = 'change '+(s>=0?'up':'down');
-      setStatus(document.getElementById('yield-status'),
-        results.yieldCurve.inverted?'INVERTED':'NORMAL');
+      el.textContent = `${s >= 0 ? '▲' : '▼'} ${inv ? 'Inverted' : 'Normal'}`;
+      el.className = 'change ' + (s >= 0 ? 'up' : 'down');
+      setStatus(document.getElementById('yield-status'), inv ? 'INVERTED' : 'NORMAL');
       document.getElementById('yield-updated').textContent =
-        'Updated: '+new Date().toLocaleTimeString();
+        'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // Estimated Buffett (paste your existing logic here, minus sparklines)
+    // ──────────────────────────────────────────────────────
+    // **INSERTED: Estimated Buffett**
+    apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
+      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
+      const el = document.getElementById('estimated-buffett-change');
+      el.textContent = overvalued
+        ? '▲ Overvalued'
+        : (ratio >= 2.5 ? '▲ Caution' : '▼ Normal');
+      el.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
+    });
 
-    // True Buffett (paste your refreshTrueBuffett implementation here)
+    // **INSERTED: True Buffett**
+    apply('buffett', results.buffett, ({ ratio }) => {
+      document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
+      const statusEl = document.getElementById('buffett-status');
+      if (ratio >= 3.0) {
+        statusEl.textContent = 'ALERT';
+        statusEl.classList.add('badge-error');
+        statusEl.classList.remove('badge-live');
+      } else {
+        statusEl.textContent = 'OK';
+        statusEl.classList.add('badge-live');
+        statusEl.classList.remove('badge-error');
+      }
+    });
+    // ──────────────────────────────────────────────────────
 
-    // Recalc the gauge
-    if (typeof refreshRiskTemperature==='function') {
+    // finally, recalc aggregate gauge
+    if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
     }
   }
 
-  document.addEventListener('DOMContentLoaded',()=>{
+  document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
-    setInterval(refreshAllWidgets,120000);
+    setInterval(refreshAllWidgets, 120000);
   });
 </script>
-</body>
-</html>
-
 
 </body>
 </html>
