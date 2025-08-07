@@ -243,25 +243,13 @@
     else                       { el.textContent = type; }
   }
 
-  function pushHistory(key, value) {
-    try {
-      const raw = localStorage.getItem(`spark_${key}`) || '[]';
-      const arr = JSON.parse(raw).concat(value).slice(-30);
-      localStorage.setItem(`spark_${key}`, JSON.stringify(arr));
-    } catch {}
-  }
-  function getHistory(key) {
-    try { return JSON.parse(localStorage.getItem(`spark_${key}`)) || []; }
-    catch { return []; }
-  }
-
   function interpolateColor(from, to, t) {
     const f = hex => parseInt(hex.slice(1),16);
-    const [r,g,b] = [f(from),f(from)>>8&0xff,f(from)&0xff];
-    const [r2,g2,b2] = [f(to),f(to)>>8&0xff,f(to)&0xff];
-    const rn = Math.round(r + (r2-r)*t);
-    const gn = Math.round(g + (g2-g)*t);
-    const bn = Math.round(b + (b2-b)*t);
+    const r1 = (f(from) >> 16) & 0xff, g1 = (f(from) >> 8) & 0xff, b1 = f(from) & 0xff;
+    const r2 = (f(to)   >> 16) & 0xff, g2 = (f(to)   >> 8) & 0xff, b2 = f(to)   & 0xff;
+    const rn = Math.round(r1 + (r2 - r1)*t);
+    const gn = Math.round(g1 + (g2 - g1)*t);
+    const bn = Math.round(b1 + (b2 - b1)*t);
     return `rgb(${rn},${gn},${bn})`;
   }
   function riskColor(score) {
@@ -270,12 +258,14 @@
       : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
   }
 
-  // your existing refreshRiskTemperature() and initDragReorder(), updateGlobalTimestamp() go here
-  // … <copied verbatim from your current code> …
+  // copy your existing implementations verbatim:
+  // function refreshRiskTemperature() { … }
+  // function initDragReorder()       { … }
+  // function updateGlobalTimestamp() { … }
 
-  // --------------------------------------------------
-  // NEW: unified fetch + cache‐fallback
-  // --------------------------------------------------
+  // ──────────────────────────────────────────────────────────────
+  // Unified fetchAllWidgets (no sparklines/history)
+  // ──────────────────────────────────────────────────────────────
   async function refreshAllWidgets() {
     let results = {};
     try {
@@ -284,20 +274,21 @@
       console.error('fetchAllData failed', e);
     }
 
-    function applyWithCache(key, live, render) {
-      const cached = cacheGet(key)?.data;
+    // helper to render or fallback to cache
+    function apply(key, live, renderer) {
+      const cache = cacheGet(key);
       if (live?.error) {
-        if (cached) {
-          render(cached);
+        if (cache?.data) {
+          renderer(cache.data);
           setStatus(document.getElementById(key + '-status'), 'CACHED');
-          const ts = new Date(cacheGet(key).ts).toLocaleTimeString();
-          document.getElementById(key + '-updated').textContent = `Updated: ${ts} (cached)`;
+          document.getElementById(key + '-updated').textContent =
+            'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
         } else {
           document.getElementById(key).textContent = 'Error';
           setStatus(document.getElementById(key + '-status'), 'ERROR');
         }
-      } else if (live != null) {
-        render(live);
+      } else if (live) {
+        renderer(live);
         setStatus(document.getElementById(key + '-status'), 'LIVE');
         cacheSet(key, live);
         document.getElementById(key + '-updated').textContent =
@@ -308,60 +299,58 @@
     }
 
     // SPY
-    applyWithCache('sp500', results.spy, ({ price, pct }) => {
+    apply('sp500', results.spy, ({ price, pct }) => {
       document.getElementById('sp500').textContent = price.toFixed(2);
       const el = document.getElementById('sp500-change');
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
-      pushHistory('sp500', price);
     });
 
     // TSLA
-    applyWithCache('tsla', results.tsla, ({ price, pct }) => {
+    apply('tsla', results.tsla, ({ price, pct }) => {
       document.getElementById('tsla').textContent = price.toFixed(2);
       const el = document.getElementById('tsla-change');
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
-      pushHistory('tsla', price);
     });
 
     // VIXY
-    applyWithCache('vix', results.vixy, ({ price, pct }) => {
+    apply('vix', results.vixy, ({ price, pct }) => {
       document.getElementById('vix').textContent = price.toFixed(2);
       const el = document.getElementById('vix-change');
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
-      pushHistory('vix', price);
     });
 
     // Lithium ETF
-    applyWithCache('lithium', results.lithium, ({ price, pct }) => {
+    apply('lithium', results.lit, ({ price, pct }) => {
       document.getElementById('lithium').textContent = price.toFixed(2);
       const el = document.getElementById('lithium-change');
       el.textContent = `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct>=0?'up':'down');
     });
 
-    // Yield Curve (unchanged)
+    // Yield Curve
     if (results.yieldCurve?.spread != null) {
       document.getElementById('yield').textContent = `${results.yieldCurve.spread.toFixed(2)}%`;
       const el = document.getElementById('yield-change');
-      el.textContent = `${results.yieldCurve.spread>=0?'▲':'▼'} ${results.yieldCurve.inverted?'Inverted':'Normal'}`;
+      el.textContent = `${results.yieldCurve.spread>=0?'▲':'▼'} ${
+        results.yieldCurve.inverted ? 'Inverted' : 'Normal'
+      }`;
       el.className = 'change ' + (results.yieldCurve.spread>=0?'up':'down');
-      setStatus(document.getElementById('yield-status'),
-        results.yieldCurve.inverted ? 'INVERTED' : 'NORMAL');
+      setStatus(
+        document.getElementById('yield-status'),
+        results.yieldCurve.inverted ? 'INVERTED' : 'NORMAL'
+      );
       document.getElementById('yield-updated').textContent =
         'Updated: ' + new Date().toLocaleTimeString();
-      pushHistory('yield', results.yieldCurve.spread);
     }
 
-    // Estimated Buffett (leave your existing code exactly as-is here)
-    // …
+    // Estimated Buffett (your existing code – copy/paste here)
 
-    // True Buffett (leave your refreshTrueBuffett exactly as-is here)
-    // …
+    // True Buffett (your refreshTrueBuffett function – copy/paste here)
 
-    // Finally, recalc the aggregate gauge:
+    // finally, recalc aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
     }
@@ -372,6 +361,7 @@
     setInterval(refreshAllWidgets, 120000);
   });
 </script>
+
 </body>
 </html>
 
