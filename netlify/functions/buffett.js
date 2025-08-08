@@ -25,8 +25,7 @@ export const handler = async () => {
       for (const o of json.observations) {
         const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const rawVal = o.value === '.' ? null : Number(o.value);
-        const v = rawVal !== null ? rawVal / 1e9 : null; // Convert from raw USD to billions
+        const v = o.value === '.' ? null : Number(o.value); // Already in billions
         if (!Number.isNaN(y)) {
           if (!map.has(y)) map.set(y, []);
           if (v !== null) map.get(y).push(v);
@@ -56,7 +55,7 @@ export const handler = async () => {
       for (const o of json.observations) {
         const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value); // already in billions
+        const v = o.value === '.' ? null : Number(o.value); // Already in billions
         if (!Number.isNaN(y) && v !== null) map.set(y, v);
       }
       return map;
