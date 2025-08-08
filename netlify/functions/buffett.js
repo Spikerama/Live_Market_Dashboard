@@ -25,7 +25,7 @@ export const handler = async () => {
       for (const o of json.observations) {
         const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value) / 1000; // convert millions to billions
+        const v = o.value === '.' ? null : Number(o.value); // FRED market cap is in **millions**
         if (!Number.isNaN(y)) {
           if (!map.has(y)) map.set(y, []);
           if (v !== null) map.get(y).push(v);
@@ -33,7 +33,10 @@ export const handler = async () => {
       }
       const avgMap = new Map();
       for (const [y, arr] of map.entries()) {
-        if (arr.length > 0) avgMap.set(y, arr.reduce((a, b) => a + b, 0) / arr.length);
+        if (arr.length > 0) {
+          const avgInBillions = (arr.reduce((a, b) => a + b, 0) / arr.length) / 1e3; // convert to billions
+          avgMap.set(y, avgInBillions);
+        }
       }
       return avgMap;
     }
@@ -55,7 +58,7 @@ export const handler = async () => {
       for (const o of json.observations) {
         const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value); // Already in billions
+        const v = o.value === '.' ? null : Number(o.value); // already in billions
         if (!Number.isNaN(y) && v !== null) map.set(y, v);
       }
       return map;
@@ -70,11 +73,10 @@ export const handler = async () => {
     if (years.length === 0) throw new Error('No overlapping year found');
 
     const latestYear = years[0];
-    const mcap = mcapMap.get(latestYear); // in billions
+    const mcap = mcapMap.get(latestYear); // in billions (converted above)
     const gdp = gdpMap.get(latestYear);   // in billions
     const ratio = (mcap / gdp) * 100;
 
-    // --- DEBUG LOG ---
     console.log({
       debug: 'Buffett Indicator Inputs',
       year: latestYear,
@@ -96,7 +98,7 @@ export const handler = async () => {
         ratio,
         market_cap_billion_usd: mcap,
         gdp_billion_usd: gdp,
-        note: 'All values in billions of USD. No scaling needed.'
+        note: 'All values in billions of USD. Market cap was converted from millions.'
       })
     };
   } catch (err) {
