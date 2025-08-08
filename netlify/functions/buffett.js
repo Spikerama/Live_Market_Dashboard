@@ -6,7 +6,7 @@ import fetch from 'node-fetch';
  *   ratio = (US total market value of equities, quarterly) / (US nominal GDP, annual) * 100
  *
  * - Numerator: NCBEILQ027S (Market Value of Equities Outstanding)
- * - Denominator: GDP (nominal GDP, SAAR), aggregated to annual
+ * - Denominator: GDP (nominal GDP, annual)
  */
 export async function handler() {
   try {
@@ -15,7 +15,7 @@ export async function handler() {
       throw new Error('FRED_KEY is missing in environment.');
     }
 
-    // --- FRED: Market Value of Equities Outstanding (NCBEILQ027S) ---
+    // --- FRED: Market Value of Equities Outstanding (quarterly, billions) ---
     async function getFREDMarketCapMap() {
       const params = new URLSearchParams({
         series_id: 'NCBEILQ027S',
@@ -31,9 +31,9 @@ export async function handler() {
       if (!json || !Array.isArray(json.observations)) throw new Error('Bad FRED payload for market cap');
       const map = new Map();
       for (const o of json.observations) {
-        const d = o.date; // 'YYYY-MM-DD'
+        const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value) * 1e9; // billions to dollars
+        const v = o.value === '.' ? null : Number(o.value) * 1e9;
         if (!Number.isNaN(y)) {
           if (!map.has(y)) map.set(y, []);
           if (v !== null) map.get(y).push(v);
@@ -46,7 +46,7 @@ export async function handler() {
       return avgMap;
     }
 
-    // --- FRED: nominal GDP (series_id=GDP), annual, revision-aware ---
+    // --- FRED: Nominal GDP (annual, billions) ---
     async function getFREDGDPAnnualMap() {
       const params = new URLSearchParams({
         series_id: 'GDP',
@@ -56,6 +56,7 @@ export async function handler() {
         observation_start: '1980-01-01',
         realtime_start: '1776-01-01',
         realtime_end: '9999-12-31'
+        // ❌ Do NOT include aggregation_method here!
       });
       const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
       const res = await fetch(url);
@@ -91,14 +92,14 @@ export async function handler() {
       body: JSON.stringify({
         source: {
           numerator: 'FRED NCBEILQ027S (avg of quarterly values)',
-          denominator: 'FRED GDP (annual)',
+          denominator: 'FRED GDP (annual nominal)'
         },
         vintage: 'latest revised',
         year: latestYear,
         ratio,
         market_cap_usd: mcap,
         gdp_usd: gdp,
-        note: 'Calculated using only FRED data. Both numerator and denominator in current USD.'
+        note: 'Calculated using only FRED data. Units are in current USD.'
       })
     };
   } catch (err) {
