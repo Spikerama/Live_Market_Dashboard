@@ -54,7 +54,6 @@ export async function handler() {
         api_key: FRED_KEY,
         file_type: 'json',
         frequency: 'a',
-        aggregation_method: 'avg',
         observation_start: '1980-01-01',
         realtime_start: '1776-01-01',
         realtime_end: '9999-12-31'
