@@ -25,7 +25,7 @@ exports.handler = async function () {
         frequency: 'q'
       });
       const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
-      const res = await fetch(url);
+      const res = await fetch(url); // ✅ correct usage
       if (!res.ok) throw new Error(`FRED HTTP ${res.status}`);
       const json = await res.json();
       if (!json || !Array.isArray(json.observations)) throw new Error('Bad FRED payload for market cap');
@@ -58,7 +58,7 @@ exports.handler = async function () {
         realtime_end: '9999-12-31'
       });
       const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
-      const res = await fetch(url);
+      const res = await fetch(url); // ✅ correct usage
       if (!res.ok) throw new Error(`FRED HTTP ${res.status}`);
       const json = await res.json();
       if (!json || !Array.isArray(json.observations)) throw new Error('Bad FRED payload for GDP');
@@ -112,4 +112,3 @@ exports.handler = async function () {
     };
   }
 };
-
