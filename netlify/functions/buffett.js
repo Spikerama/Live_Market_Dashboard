@@ -25,7 +25,8 @@ export const handler = async () => {
       for (const o of json.observations) {
         const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value); // value already in billions
+        const rawVal = o.value === '.' ? null : Number(o.value);
+        const v = rawVal !== null ? rawVal / 1e9 : null; // Convert from raw USD to billions
         if (!Number.isNaN(y)) {
           if (!map.has(y)) map.set(y, []);
           if (v !== null) map.get(y).push(v);
@@ -38,30 +39,28 @@ export const handler = async () => {
       return avgMap;
     }
 
-// --- FRED: GDP (annual, billions USD, nominal) ---
-async function getFREDGDPAnnualMap() {
-  const params = new URLSearchParams({
-    series_id: 'GDP',
-    api_key: FRED_KEY,
-    file_type: 'json',
-    observation_start: '1980-01-01'
-    // Removed frequency param — GDP series doesn't accept it
-  });
-  const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`FRED HTTP ${res.status}`);
-  const json = await res.json();
-  if (!json || !Array.isArray(json.observations)) throw new Error('Bad FRED payload for GDP');
-  const map = new Map();
-  for (const o of json.observations) {
-    const d = o.date;
-    const y = parseInt(d.slice(0, 4), 10);
-    const v = o.value === '.' ? null : Number(o.value); // already in billions
-    if (!Number.isNaN(y) && v !== null) map.set(y, v);
-  }
-  return map;
-}
-
+    // --- FRED: GDP (annual, billions USD, nominal) ---
+    async function getFREDGDPAnnualMap() {
+      const params = new URLSearchParams({
+        series_id: 'GDP',
+        api_key: FRED_KEY,
+        file_type: 'json',
+        observation_start: '1980-01-01'
+      });
+      const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`FRED HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json || !Array.isArray(json.observations)) throw new Error('Bad FRED payload for GDP');
+      const map = new Map();
+      for (const o of json.observations) {
+        const d = o.date;
+        const y = parseInt(d.slice(0, 4), 10);
+        const v = o.value === '.' ? null : Number(o.value); // already in billions
+        if (!Number.isNaN(y) && v !== null) map.set(y, v);
+      }
+      return map;
+    }
 
     const [mcapMap, gdpMap] = await Promise.all([
       getFREDMarketCapMap(),
