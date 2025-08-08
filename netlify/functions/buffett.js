@@ -25,7 +25,7 @@ export const handler = async () => {
       for (const o of json.observations) {
         const d = o.date;
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value); // Already in billions
+        const v = o.value === '.' ? null : Number(o.value) / 1000; // convert millions to billions
         if (!Number.isNaN(y)) {
           if (!map.has(y)) map.set(y, []);
           if (v !== null) map.get(y).push(v);
