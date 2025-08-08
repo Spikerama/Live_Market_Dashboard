@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
  * "True Buffett" (annual, revision-aware):
  *   ratio = (US total market cap, current USD, World Bank) / (US nominal GDP, current USD, FRED) * 100
  * - WB is annual + revised occasionally
- * - FRED GDP is pulled as ANNUAL (from quarterly SAAR), with realtime range covering latest revisions
+ * - FRED GDP is pulled as ANNUAL (GDPCA series), avoiding quarterly conversion
  * - We align to the latest common year
  */
 export async function handler() {
@@ -33,18 +33,13 @@ export async function handler() {
       return out; // Map<number, number|null>
     }
 
-    // --- FRED: nominal GDP (series_id=GDP), annual via frequency param, revision-aware via realtime window ---
-    // We request a broad realtime window so FRED gives the latest revised observation.
+    // --- FRED: GDPCA (nominal GDP, not seasonally adjusted, annual, current USD) ---
     async function getFREDGDPAnnualMap() {
       const params = new URLSearchParams({
-        series_id: 'GDP',                    // nominal GDP, SAAR, billions of dollars (quarterly base series)
+        series_id: 'GDPCA',                // Nominal GDP, Annual, Not SA, Current USD
         api_key: FRED_KEY,
         file_type: 'json',
-        frequency: 'a',                      // annual
-        aggregation_method: 'avg',           // average of quarterly SAAR values
-        observation_start: '1980-01-01',
-        realtime_start: '1776-01-01',        // include entire revision history
-        realtime_end: '9999-12-31'
+        observation_start: '1980-01-01'
       });
       const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
       const res = await fetch(url);
@@ -53,11 +48,10 @@ export async function handler() {
       if (!json || !Array.isArray(json.observations)) throw new Error('Bad FRED payload');
       const map = new Map(); // year -> value (USD)
       for (const o of json.observations) {
-        const d = o.date; // 'YYYY-01-01'
+        const d = o.date; // 'YYYY-MM-DD'
         const y = parseInt(d.slice(0, 4), 10);
-        const v = o.value === '.' ? null : Number(o.value) * 1e9; // FRED "GDP" is billions of $ -> convert to dollars
-        // NOTE: World Bank is in current USD, so we convert FRED billions -> dollars to match units
-        if (!Number.isNaN(y)) map.set(y, v);
+        const v = o.value === '.' ? null : Number(o.value);
+        if (!Number.isNaN(y)) map.set(y, v * 1e9); // Convert from billions to dollars
       }
       return map;
     }
@@ -68,10 +62,10 @@ export async function handler() {
     ]);
 
     // Find the latest common year with non-null WB market cap and a GDP value
-    const wbYears = [...wbMap.keys()].sort((a,b) => b - a);
+    const wbYears = [...wbMap.keys()].sort((a, b) => b - a);
     let chosenYear = null;
     let mcap = null;
-    let gdp  = null;
+    let gdp = null;
 
     for (const y of wbYears) {
       const mc = wbMap.get(y);
@@ -79,7 +73,7 @@ export async function handler() {
       if (mc != null && gd != null) {
         chosenYear = y;
         mcap = mc;   // WB is already in US dollars
-        gdp  = gd;   // FRED already converted to dollars above
+        gdp = gd;    // FRED already converted to dollars above
         break;
       }
     }
@@ -94,13 +88,13 @@ export async function handler() {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       body: JSON.stringify({
-        source: { numerator: 'World Bank CM.MKT.LCAP.CD', denominator: 'FRED GDP (annual, avg of SAAR)' },
+        source: { numerator: 'World Bank CM.MKT.LCAP.CD', denominator: 'FRED GDPCA (nominal, annual)' },
         vintage: 'latest revised',
         year: chosenYear,
         ratio,                 // percent, e.g. 170.23
         market_cap_usd: mcap,  // dollars
         gdp_usd: gdp,          // dollars
-        note: 'Annual estimate; Wilshire daily series is no longer on FRED. This uses latest revised values when they are published.'
+        note: 'Annual estimate; avoids Wilshire. Uses FRED GDPCA and latest WB data.'
       })
     };
   } catch (err) {
