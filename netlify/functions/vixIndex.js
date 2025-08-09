@@ -1,62 +1,80 @@
 // netlify/functions/vixIndex.js
 // Primary: FMP (^VIX). Fallback: Stooq CSV. Final fallback: recent in-memory cache.
+// Add `?debug=1` to the function URL to return error details instead of a 500.
 
 const SYMBOL = '^VIX';
 const FMP_KEY = process.env.FMP_KEY;
 
-let cached = {
-  price: null,
-  changePercent: null,
-  ts: 0, // ms
-};
+let cached = { price: null, changePercent: null, ts: 0 };
 
-async function fetchJSON(url, opts) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.json();
+const jsonOk = (body, status = 200) => ({
+  statusCode: status,
+  headers: {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store',
+  },
+  body: JSON.stringify(body),
+});
+
+async function fetchJSON(url, headers) {
+  const res = await fetch(url, { headers });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = null; }
+  return { ok: res.ok, status: res.status, data, text };
 }
 
-async function fetchText(url, opts) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.text();
+async function fetchText(url, headers) {
+  const res = await fetch(url, { headers });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, text };
 }
 
 // ---------- Primary: FMP ----------
-async function getFromFMP() {
+async function getFromFMP(debug) {
   if (!FMP_KEY) throw new Error('FMP_KEY missing');
-  const url = `https://financialmodelingprep.com/api/v3/quote/%5EVIX?apikey=${encodeURIComponent(FMP_KEY)}`;
-  const data = await fetchJSON(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-  if (!Array.isArray(data) || data.length === 0) throw new Error('FMP empty payload');
+  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible)' };
 
-  const q = data[0];
-  const price = Number(q.price ?? q.previousClose);
-  if (!Number.isFinite(price)) throw new Error('FMP missing price');
+  // Try encoded caret first, then raw caret (FMP usually needs %5E)
+  const urls = [
+    `https://financialmodelingprep.com/api/v3/quote/%5EVIX?apikey=${encodeURIComponent(FMP_KEY)}`,
+    `https://financialmodelingprep.com/api/v3/quote/^VIX?apikey=${encodeURIComponent(FMP_KEY)}`,
+  ];
 
-  let changePercent = null;
-  if (q.changesPercentage != null && q.changesPercentage !== '') {
-    // FMP returns like "1.23" or sometimes "1.23%" – handle both
-    changePercent = Number(String(q.changesPercentage).replace('%', ''));
-  } else if (q.change != null && q.previousClose != null) {
-    const prev = Number(q.previousClose);
-    const chg = Number(q.change);
-    if (Number.isFinite(prev) && prev !== 0 && Number.isFinite(chg)) {
-      changePercent = (chg / prev) * 100;
+  let lastErr;
+  for (const url of urls) {
+    const { ok, status, data, text } = await fetchJSON(url, headers);
+    if (debug) console.log('[VIX FMP]', status, text?.slice(0, 300));
+    if (!ok) { lastErr = new Error(`FMP HTTP ${status}`); continue; }
+    if (!Array.isArray(data) || data.length === 0) { lastErr = new Error('FMP empty array'); continue; }
+
+    const q = data[0] || {};
+    const price = Number(q.price ?? q.previousClose);
+    if (!Number.isFinite(price)) { lastErr = new Error('FMP missing price'); continue; }
+
+    let changePercent = null;
+    if (q.changesPercentage != null && q.changesPercentage !== '') {
+      changePercent = Number(String(q.changesPercentage).replace('%', ''));
+    } else if (q.change != null && q.previousClose != null) {
+      const prev = Number(q.previousClose);
+      const chg  = Number(q.change);
+      if (Number.isFinite(prev) && prev !== 0 && Number.isFinite(chg)) {
+        changePercent = (chg / prev) * 100;
+      }
     }
+    return { price, changePercent, source: 'FMP' };
   }
-
-  return { price, changePercent, source: 'FMP' };
+  throw lastErr || new Error('FMP failed');
 }
 
 // ---------- Fallback: Stooq CSV (^VIX daily history) ----------
-function parseStooqCSV(csvText) {
-  const trimmed = (csvText || '').trim();
-  if (!trimmed || trimmed === 'NO DATA') return null;
+function parseStooqCSV(csv) {
+  const t = (csv || '').trim();
+  if (!t || t === 'NO DATA') return null;
+  const lines = t.split('\n').filter(Boolean);
+  if (lines.length < 2) return null; // header + at least 1 row
 
-  const lines = trimmed.split('\n').filter(Boolean);
-  if (lines.length < 2) return null;
-
-  // header: date,open,high,low,close,volume
   const last = lines[lines.length - 1].split(',');
   const prev = lines.length >= 3 ? lines[lines.length - 2].split(',') : null;
 
@@ -73,101 +91,76 @@ function parseStooqCSV(csvText) {
   return { price: close, changePercent, source: 'Stooq CSV ^VIX' };
 }
 
-async function getFromStooq() {
-  // Try with encoded caret first, then unencoded
+async function getFromStooq(debug) {
+  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible)' };
   const base = 'https://stooq.com/q/d/l/';
-  const url1 = `${base}?s=${encodeURIComponent(SYMBOL.toLowerCase())}&i=d`;
-  const url2 = `${base}?s=${SYMBOL.toLowerCase()}&i=d`;
+  const urls = [
+    `${base}?s=${encodeURIComponent(SYMBOL.toLowerCase())}&i=d`, // encoded ^vix
+    `${base}?s=${SYMBOL.toLowerCase()}&i=d`,                      // raw ^vix
+  ];
 
-  try {
-    const csv = await fetchText(url1, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-    const parsed = parseStooqCSV(csv);
+  let lastErr;
+  for (const url of urls) {
+    const { ok, status, text } = await fetchText(url, headers);
+    if (debug) console.log('[VIX Stooq]', status, String(text).slice(0, 180));
+    if (!ok) { lastErr = new Error(`Stooq HTTP ${status}`); continue; }
+    const parsed = parseStooqCSV(text);
     if (parsed) return parsed;
-    throw new Error('Stooq parsed empty (encoded)');
-  } catch (e1) {
-    const csv = await fetchText(url2, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-    const parsed = parseStooqCSV(csv);
-    if (parsed) return parsed;
-    throw new Error('Stooq parsed empty (raw ^VIX)');
+    lastErr = new Error('Stooq parsed empty');
   }
+  throw lastErr || new Error('Stooq failed');
 }
 
-exports.handler = async function () {
+exports.handler = async (event) => {
+  const debug = event?.queryStringParameters?.debug === '1';
+
   try {
     // 1) FMP first
     try {
-      const { price, changePercent, source } = await getFromFMP();
+      const { price, changePercent, source } = await getFromFMP(debug);
       cached = { price, changePercent, ts: Date.now() };
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store'
-        },
-        body: JSON.stringify({
-          price,
-          changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null,
-          source,
-          timestamp: new Date().toISOString()
-        })
-      };
-    } catch (fmpErr) {
-      console.log('[VIX] FMP failed, falling back to Stooq:', fmpErr.message);
+      return jsonOk({
+        price,
+        changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null,
+        source,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.log('[VIX] FMP failed →', e.message);
+      if (debug) console.log(e.stack);
     }
 
     // 2) Stooq fallback
     try {
-      const { price, changePercent, source } = await getFromStooq();
+      const { price, changePercent, source } = await getFromStooq(debug);
       cached = { price, changePercent, ts: Date.now() };
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store'
-        },
-        body: JSON.stringify({
-          price,
-          changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null,
-          source,
-          timestamp: new Date().toISOString()
-        })
-      };
-    } catch (stooqErr) {
-      console.log('[VIX] Stooq failed:', stooqErr.message);
+      return jsonOk({
+        price,
+        changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null,
+        source,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.log('[VIX] Stooq failed →', e.message);
+      if (debug) console.log(e.stack);
     }
 
-    // 3) Recent cache (≤ 60 minutes)
+    // 3) Cache ≤ 60 min
     const age = Date.now() - cached.ts;
     if (cached.price != null && age < 60 * 60 * 1000) {
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store'
-        },
-        body: JSON.stringify({
-          price: cached.price,
-          changePercent: Number.isFinite(cached.changePercent) ? Number(cached.changePercent.toFixed(2)) : null,
-          source: 'Cached last good VIX',
-          timestamp: new Date().toISOString()
-        })
-      };
+      return jsonOk({
+        price: cached.price,
+        changePercent: Number.isFinite(cached.changePercent) ? Number(cached.changePercent.toFixed(2)) : null,
+        source: 'Cached last good VIX',
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    throw new Error('All sources failed and no fresh cache');
+    const err = 'All sources failed and no fresh cache';
+    if (debug) return jsonOk({ error: err }, 200);
+    throw new Error(err);
   } catch (err) {
     console.error('vixIndex error:', err);
-    return {
-      statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-store'
-      },
-      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() })
-    };
+    return jsonOk({ error: err.message, timestamp: new Date().toISOString() }, 500);
   }
 };
