@@ -2,7 +2,7 @@
 
 const FMP_KEY = process.env.FMP_KEY;
 
-// helpers
+// ── helpers
 async function fetchJSON(url, init) {
   const r = await fetch(url, init);
   if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
@@ -14,7 +14,7 @@ async function fetchText(url, init) {
   return r.text();
 }
 
-// 1) FMP first (if key present)
+// ── 1) FMP first (if key present)
 async function getFromFMP() {
   if (!FMP_KEY) throw new Error('FMP_KEY missing');
   const url = `https://financialmodelingprep.com/api/v3/quote/%5EVIX?apikey=${encodeURIComponent(FMP_KEY)}`;
@@ -43,34 +43,35 @@ async function getFromFMP() {
   return { price, changePercent: changePct, source: 'FMP ^VIX' };
 }
 
-// 2) Yahoo Finance fallback (no key)
-async function getFromYahoo() {
-  const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EVIX';
-  const json = await fetchJSON(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  const row = json?.quoteResponse?.result?.[0];
-  if (!row) throw new Error('Yahoo: empty result');
+// ── 2) CBOE official CSV (no key)
+// https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv
+async function getFromCBOE() {
+  const url = 'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv';
+  const csv = await fetchText(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
 
-  const price = Number(row.regularMarketPrice);
-  if (!Number.isFinite(price)) throw new Error('Yahoo: bad price');
+  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
+  // Find last two data rows (skip header)
+  // Header usually like: "DATE,OPEN,HIGH,LOW,CLOSE"
+  const data = lines.filter(l => /^\d{4}-\d{2}-\d{2},/.test(l));
+  if (data.length < 1) throw new Error('CBOE: no data rows');
 
-  let changePct = row.regularMarketChangePercent;
-  changePct = Number(changePct);
+  const latest = data[data.length - 1].split(',');
+  const price = Number(latest[4]); // CLOSE
+  if (!Number.isFinite(price)) throw new Error('CBOE: bad close');
 
-  if (!Number.isFinite(changePct)) {
-    const prev = Number(row.regularMarketPreviousClose);
-    if (Number.isFinite(prev) && prev !== 0) {
-      changePct = Number((((price - prev) / prev) * 100).toFixed(2));
-    } else {
-      changePct = null;
+  let changePercent = null;
+  if (data.length >= 2) {
+    const prior = data[data.length - 2].split(',');
+    const prevClose = Number(prior[4]);
+    if (Number.isFinite(prevClose) && prevClose !== 0) {
+      changePercent = Number((((price - prevClose) / prevClose) * 100).toFixed(2));
     }
-  } else {
-    changePct = Number(changePct.toFixed(2));
   }
 
-  return { price, changePercent: changePct, source: 'Yahoo ^VIX' };
+  return { price, changePercent, source: 'CBOE CSV VIX_History' };
 }
 
-// 3) Stooq CSV fallback (NOTE: use literal ^vix, not encoded)
+// ── 3) Stooq CSV fallback (literal ^vix symbol)
 const STOOQ_CSV_URL = 'https://stooq.com/q/d/l/?s=^vix&i=d';
 
 function parseStooqCSV(csvText) {
@@ -101,7 +102,7 @@ async function getFromStooq() {
   return parsed;
 }
 
-// 4) in-memory cache
+// ── 4) in-memory cache
 let cache = { ts: 0, price: null, changePercent: null, source: null };
 const CACHE_MS = 60 * 60 * 1000;
 
@@ -124,12 +125,12 @@ export async function handler(event) {
     }
 
     try {
-      const y = await getFromYahoo();
-      cache = { ts: Date.now(), ...y };
-      if (debug) dbg.tried.push({ src: 'Yahoo', ok: true });
-      return ok(y, debug ? dbg : undefined);
+      const c = await getFromCBOE();
+      cache = { ts: Date.now(), ...c };
+      if (debug) dbg.tried.push({ src: 'CBOE', ok: true });
+      return ok(c, debug ? dbg : undefined);
     } catch (e) {
-      if (debug) dbg.tried.push({ src: 'Yahoo', ok: false, err: String(e.message || e) });
+      if (debug) dbg.tried.push({ src: 'CBOE', ok: false, err: String(e.message || e) });
     }
 
     try {
@@ -154,7 +155,7 @@ export async function handler(event) {
   }
 }
 
-// response helpers
+// ── response helpers
 function ok(payload, debugInfo) {
   const body = debugInfo ? { ...payload, _debug: debugInfo, timestamp: new Date().toISOString() }
                          : { ...payload, timestamp: new Date().toISOString() };
