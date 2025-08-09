@@ -1,4 +1,4 @@
-// vixIndex.js — VIX index from Stooq CSV, fallback only to recent in-memory cache (no VIXY)
+// netlify/functions/vixIndex.js — VIX index from Stooq CSV with debug logging
 const STOOQ_CSV_URL = 'https://stooq.com/q/d/l/?s=^vix&i=d';
 
 let cached = {
@@ -13,9 +13,14 @@ async function fetchTextWithRetry(url, attempts = 3, delay = 300) {
     try {
       const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
+      const text = await res.text();
+      // Debug: log status and a small slice of the payload so we see what we got
+      console.log('[VIX] fetch status OK, length:', text.length);
+      console.log('[VIX] CSV (first 5 lines):\n' + text.split(/\r?\n/).slice(0, 5).join('\n'));
+      return text;
     } catch (e) {
       lastErr = e;
+      console.warn(`[VIX] fetch attempt ${i + 1} failed: ${e.message}`);
       if (i < attempts - 1) await new Promise(r => setTimeout(r, delay * (i + 1)));
     }
   }
@@ -23,21 +28,44 @@ async function fetchTextWithRetry(url, attempts = 3, delay = 300) {
 }
 
 function parseStooqCSV(csvText) {
-  const trimmed = csvText.trim();
-  if (!trimmed || trimmed === 'NO DATA') return null;
-  const lines = trimmed.split('\n').filter(l => l.trim());
-  if (lines.length < 2) return null; // no data rows
-  const latest = lines[lines.length - 1].split(',');
-  const prior = lines.length >= 3 ? lines[lines.length - 2].split(',') : null;
-  const latestClose = parseFloat(latest[4]);
-  if (isNaN(latestClose)) return null;
+  if (!csvText) return null;
+
+  const lines = csvText
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return null;
+
+  // Header should be something like: Date,Open,High,Low,Close,Volume
+  const header = lines[0].toLowerCase();
+  const hasHeader = header.includes('date') && header.includes('close');
+
+  // Find the last data line (skip header and any trailing blank)
+  const dataLines = hasHeader ? lines.slice(1) : lines.slice(0);
+  if (dataLines.length === 0) return null;
+
+  const latestLine = dataLines[dataLines.length - 1];
+  const priorLine = dataLines.length >= 2 ? dataLines[dataLines.length - 2] : null;
+
+  const latestCols = latestLine.split(',').map(x => x.trim());
+  const priorCols  = priorLine ? priorLine.split(',').map(x => x.trim()) : null;
+
+  // Expected columns: [Date, Open, High, Low, Close, Volume]
+  const latestClose = parseFloat(latestCols[4]);
+  if (!isFinite(latestClose)) {
+    console.warn('[VIX] latest close not parseable:', latestCols);
+    return null;
+  }
+
   let changePercent = null;
-  if (prior) {
-    const priorClose = parseFloat(prior[4]);
-    if (!isNaN(priorClose) && priorClose !== 0) {
+  if (priorCols && priorCols.length >= 5) {
+    const priorClose = parseFloat(priorCols[4]);
+    if (isFinite(priorClose) && priorClose !== 0) {
       changePercent = parseFloat((((latestClose - priorClose) / priorClose) * 100).toFixed(2));
     }
   }
+
   return { price: latestClose, changePercent };
 }
 
@@ -47,26 +75,30 @@ exports.handler = async function () {
     let changePercent = null;
     let source = '';
 
-    // Try Stooq
+    // Try Stooq first
     try {
       const csv = await fetchTextWithRetry(STOOQ_CSV_URL);
+      if (csv.trim() === 'NO DATA') throw new Error('Stooq returned NO DATA');
       const parsed = parseStooqCSV(csv);
+      console.log('[VIX] parsed object:', parsed);
+
       if (parsed) {
         price = parsed.price;
         changePercent = parsed.changePercent;
         source = 'Stooq CSV ^VIX';
-        // update cache
         cached = { price, changePercent, timestamp: Date.now() };
       } else {
-        throw new Error('No usable Stooq data');
+        throw new Error('No usable Stooq data after parsing');
       }
     } catch (stooqErr) {
-      // fallback only to recent cache (within 1 hour)
+      console.warn('[VIX] Stooq branch failed:', stooqErr.message);
+      // Fallback only to recent cache (within 1 hour)
       const age = Date.now() - cached.timestamp;
       if (cached.price !== null && age < 60 * 60 * 1000) {
         price = cached.price;
         changePercent = cached.changePercent;
         source = 'Cached last good VIX';
+        console.log('[VIX] Using cached VIX. Age (ms):', age);
       } else {
         throw new Error(`Stooq failed and no fresh cache: ${stooqErr.message}`);
       }
