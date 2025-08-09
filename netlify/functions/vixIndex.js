@@ -1,125 +1,173 @@
-// netlify/functions/vixIndex.js — VIX index from Stooq CSV with debug logging
-const STOOQ_CSV_URL = 'https://stooq.com/q/d/l/?s=^vix&i=d';
+// netlify/functions/vixIndex.js
+// Primary: FMP (^VIX). Fallback: Stooq CSV. Final fallback: recent in-memory cache.
+
+const SYMBOL = '^VIX';
+const FMP_KEY = process.env.FMP_KEY;
 
 let cached = {
   price: null,
   changePercent: null,
-  timestamp: 0,
+  ts: 0, // ms
 };
 
-async function fetchTextWithRetry(url, attempts = 3, delay = 300) {
-  let lastErr;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
-      // Debug: log status and a small slice of the payload so we see what we got
-      console.log('[VIX] fetch status OK, length:', text.length);
-      console.log('[VIX] CSV (first 5 lines):\n' + text.split(/\r?\n/).slice(0, 5).join('\n'));
-      return text;
-    } catch (e) {
-      lastErr = e;
-      console.warn(`[VIX] fetch attempt ${i + 1} failed: ${e.message}`);
-      if (i < attempts - 1) await new Promise(r => setTimeout(r, delay * (i + 1)));
-    }
-  }
-  throw new Error(`All retries failed fetching Stooq CSV: ${lastErr?.message || 'unknown'}`);
+async function fetchJSON(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return res.json();
 }
 
-function parseStooqCSV(csvText) {
-  if (!csvText) return null;
+async function fetchText(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return res.text();
+}
 
-  const lines = csvText
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean);
+// ---------- Primary: FMP ----------
+async function getFromFMP() {
+  if (!FMP_KEY) throw new Error('FMP_KEY missing');
+  const url = `https://financialmodelingprep.com/api/v3/quote/%5EVIX?apikey=${encodeURIComponent(FMP_KEY)}`;
+  const data = await fetchJSON(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+  if (!Array.isArray(data) || data.length === 0) throw new Error('FMP empty payload');
 
-  if (lines.length < 2) return null;
-
-  // Header should be something like: Date,Open,High,Low,Close,Volume
-  const header = lines[0].toLowerCase();
-  const hasHeader = header.includes('date') && header.includes('close');
-
-  // Find the last data line (skip header and any trailing blank)
-  const dataLines = hasHeader ? lines.slice(1) : lines.slice(0);
-  if (dataLines.length === 0) return null;
-
-  const latestLine = dataLines[dataLines.length - 1];
-  const priorLine = dataLines.length >= 2 ? dataLines[dataLines.length - 2] : null;
-
-  const latestCols = latestLine.split(',').map(x => x.trim());
-  const priorCols  = priorLine ? priorLine.split(',').map(x => x.trim()) : null;
-
-  // Expected columns: [Date, Open, High, Low, Close, Volume]
-  const latestClose = parseFloat(latestCols[4]);
-  if (!isFinite(latestClose)) {
-    console.warn('[VIX] latest close not parseable:', latestCols);
-    return null;
-  }
+  const q = data[0];
+  const price = Number(q.price ?? q.previousClose);
+  if (!Number.isFinite(price)) throw new Error('FMP missing price');
 
   let changePercent = null;
-  if (priorCols && priorCols.length >= 5) {
-    const priorClose = parseFloat(priorCols[4]);
-    if (isFinite(priorClose) && priorClose !== 0) {
-      changePercent = parseFloat((((latestClose - priorClose) / priorClose) * 100).toFixed(2));
+  if (q.changesPercentage != null && q.changesPercentage !== '') {
+    // FMP returns like "1.23" or sometimes "1.23%" – handle both
+    changePercent = Number(String(q.changesPercentage).replace('%', ''));
+  } else if (q.change != null && q.previousClose != null) {
+    const prev = Number(q.previousClose);
+    const chg = Number(q.change);
+    if (Number.isFinite(prev) && prev !== 0 && Number.isFinite(chg)) {
+      changePercent = (chg / prev) * 100;
     }
   }
 
-  return { price: latestClose, changePercent };
+  return { price, changePercent, source: 'FMP' };
+}
+
+// ---------- Fallback: Stooq CSV (^VIX daily history) ----------
+function parseStooqCSV(csvText) {
+  const trimmed = (csvText || '').trim();
+  if (!trimmed || trimmed === 'NO DATA') return null;
+
+  const lines = trimmed.split('\n').filter(Boolean);
+  if (lines.length < 2) return null;
+
+  // header: date,open,high,low,close,volume
+  const last = lines[lines.length - 1].split(',');
+  const prev = lines.length >= 3 ? lines[lines.length - 2].split(',') : null;
+
+  const close = Number(last[4]);
+  if (!Number.isFinite(close)) return null;
+
+  let changePercent = null;
+  if (prev) {
+    const prevClose = Number(prev[4]);
+    if (Number.isFinite(prevClose) && prevClose !== 0) {
+      changePercent = ((close - prevClose) / prevClose) * 100;
+    }
+  }
+  return { price: close, changePercent, source: 'Stooq CSV ^VIX' };
+}
+
+async function getFromStooq() {
+  // Try with encoded caret first, then unencoded
+  const base = 'https://stooq.com/q/d/l/';
+  const url1 = `${base}?s=${encodeURIComponent(SYMBOL.toLowerCase())}&i=d`;
+  const url2 = `${base}?s=${SYMBOL.toLowerCase()}&i=d`;
+
+  try {
+    const csv = await fetchText(url1, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+    const parsed = parseStooqCSV(csv);
+    if (parsed) return parsed;
+    throw new Error('Stooq parsed empty (encoded)');
+  } catch (e1) {
+    const csv = await fetchText(url2, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+    const parsed = parseStooqCSV(csv);
+    if (parsed) return parsed;
+    throw new Error('Stooq parsed empty (raw ^VIX)');
+  }
 }
 
 exports.handler = async function () {
   try {
-    let price = null;
-    let changePercent = null;
-    let source = '';
-
-    // Try Stooq first
+    // 1) FMP first
     try {
-      const csv = await fetchTextWithRetry(STOOQ_CSV_URL);
-      if (csv.trim() === 'NO DATA') throw new Error('Stooq returned NO DATA');
-      const parsed = parseStooqCSV(csv);
-      console.log('[VIX] parsed object:', parsed);
-
-      if (parsed) {
-        price = parsed.price;
-        changePercent = parsed.changePercent;
-        source = 'Stooq CSV ^VIX';
-        cached = { price, changePercent, timestamp: Date.now() };
-      } else {
-        throw new Error('No usable Stooq data after parsing');
-      }
-    } catch (stooqErr) {
-      console.warn('[VIX] Stooq branch failed:', stooqErr.message);
-      // Fallback only to recent cache (within 1 hour)
-      const age = Date.now() - cached.timestamp;
-      if (cached.price !== null && age < 60 * 60 * 1000) {
-        price = cached.price;
-        changePercent = cached.changePercent;
-        source = 'Cached last good VIX';
-        console.log('[VIX] Using cached VIX. Age (ms):', age);
-      } else {
-        throw new Error(`Stooq failed and no fresh cache: ${stooqErr.message}`);
-      }
+      const { price, changePercent, source } = await getFromFMP();
+      cached = { price, changePercent, ts: Date.now() };
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store'
+        },
+        body: JSON.stringify({
+          price,
+          changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null,
+          source,
+          timestamp: new Date().toISOString()
+        })
+      };
+    } catch (fmpErr) {
+      console.log('[VIX] FMP failed, falling back to Stooq:', fmpErr.message);
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({
-        price,
-        changePercent,
-        source,
-        timestamp: new Date().toISOString(),
-      }),
-    };
+    // 2) Stooq fallback
+    try {
+      const { price, changePercent, source } = await getFromStooq();
+      cached = { price, changePercent, ts: Date.now() };
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store'
+        },
+        body: JSON.stringify({
+          price,
+          changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null,
+          source,
+          timestamp: new Date().toISOString()
+        })
+      };
+    } catch (stooqErr) {
+      console.log('[VIX] Stooq failed:', stooqErr.message);
+    }
+
+    // 3) Recent cache (≤ 60 minutes)
+    const age = Date.now() - cached.ts;
+    if (cached.price != null && age < 60 * 60 * 1000) {
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store'
+        },
+        body: JSON.stringify({
+          price: cached.price,
+          changePercent: Number.isFinite(cached.changePercent) ? Number(cached.changePercent.toFixed(2)) : null,
+          source: 'Cached last good VIX',
+          timestamp: new Date().toISOString()
+        })
+      };
+    }
+
+    throw new Error('All sources failed and no fresh cache');
   } catch (err) {
     console.error('vixIndex error:', err);
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
+      },
+      body: JSON.stringify({ error: err.message, timestamp: new Date().toISOString() })
     };
   }
 };
