@@ -2,19 +2,19 @@
 
 const FMP_KEY = process.env.FMP_KEY;
 
-// tiny helper
+// helpers
 async function fetchJSON(url, init) {
-  const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  return res.json();
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+  return r.json();
 }
 async function fetchText(url, init) {
-  const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  return res.text();
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+  return r.text();
 }
 
-// 1) FMP source: https://financialmodelingprep.com/api/v3/quote/%5EVIX
+// 1) FMP first (if key present)
 async function getFromFMP() {
   if (!FMP_KEY) throw new Error('FMP_KEY missing');
   const url = `https://financialmodelingprep.com/api/v3/quote/%5EVIX?apikey=${encodeURIComponent(FMP_KEY)}`;
@@ -26,20 +26,15 @@ async function getFromFMP() {
   if (!Number.isFinite(price)) throw new Error('FMP: bad price');
 
   let changePct = row.changesPercentage;
-  if (typeof changePct === 'string') {
-    // FMP sometimes returns like "1.23%"
-    changePct = changePct.replace('%', '');
-  }
+  if (typeof changePct === 'string') changePct = changePct.replace('%', '');
   changePct = Number(changePct);
 
   if (!Number.isFinite(changePct)) {
-    // compute from change / previousClose if available
     const prev = Number(row.previousClose);
     if (Number.isFinite(prev) && prev !== 0) {
-      const computed = ((price - prev) / prev) * 100;
-      changePct = Number(computed.toFixed(2));
+      changePct = Number((((price - prev) / prev) * 100).toFixed(2));
     } else {
-      changePct = null; // we can live without it
+      changePct = null;
     }
   } else {
     changePct = Number(changePct.toFixed(2));
@@ -48,8 +43,35 @@ async function getFromFMP() {
   return { price, changePercent: changePct, source: 'FMP ^VIX' };
 }
 
-// 2) Stooq CSV fallback
-const STOOQ_CSV_URL = 'https://stooq.com/q/d/l/?s=%5Evix&i=d';
+// 2) Yahoo Finance fallback (no key)
+async function getFromYahoo() {
+  const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EVIX';
+  const json = await fetchJSON(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const row = json?.quoteResponse?.result?.[0];
+  if (!row) throw new Error('Yahoo: empty result');
+
+  const price = Number(row.regularMarketPrice);
+  if (!Number.isFinite(price)) throw new Error('Yahoo: bad price');
+
+  let changePct = row.regularMarketChangePercent;
+  changePct = Number(changePct);
+
+  if (!Number.isFinite(changePct)) {
+    const prev = Number(row.regularMarketPreviousClose);
+    if (Number.isFinite(prev) && prev !== 0) {
+      changePct = Number((((price - prev) / prev) * 100).toFixed(2));
+    } else {
+      changePct = null;
+    }
+  } else {
+    changePct = Number(changePct.toFixed(2));
+  }
+
+  return { price, changePercent: changePct, source: 'Yahoo ^VIX' };
+}
+
+// 3) Stooq CSV fallback (NOTE: use literal ^vix, not encoded)
+const STOOQ_CSV_URL = 'https://stooq.com/q/d/l/?s=^vix&i=d';
 
 function parseStooqCSV(csvText) {
   const trimmed = (csvText || '').trim();
@@ -79,55 +101,60 @@ async function getFromStooq() {
   return parsed;
 }
 
-// 3) in-memory cache
+// 4) in-memory cache
 let cache = { ts: 0, price: null, changePercent: null, source: null };
 const CACHE_MS = 60 * 60 * 1000;
 
 export async function handler(event) {
   const debug = event?.queryStringParameters?.debug === '1';
-  const debugInfo = { tried: [] };
+  const dbg = { tried: [] };
 
   try {
-    // Try FMP first (if key present)
     if (FMP_KEY) {
       try {
-        const fmp = await getFromFMP();
-        cache = { ts: Date.now(), ...fmp };
-        if (debug) debugInfo.tried.push({ src: 'FMP', ok: true });
-        return ok(fmp, debug ? debugInfo : undefined);
+        const f = await getFromFMP();
+        cache = { ts: Date.now(), ...f };
+        if (debug) dbg.tried.push({ src: 'FMP', ok: true });
+        return ok(f, debug ? dbg : undefined);
       } catch (e) {
-        if (debug) debugInfo.tried.push({ src: 'FMP', ok: false, err: String(e.message || e) });
+        if (debug) dbg.tried.push({ src: 'FMP', ok: false, err: String(e.message || e) });
       }
     } else if (debug) {
-      debugInfo.tried.push({ src: 'FMP', ok: false, err: 'FMP_KEY missing' });
+      dbg.tried.push({ src: 'FMP', ok: false, err: 'FMP_KEY missing' });
     }
 
-    // Then Stooq
     try {
-      const stooq = await getFromStooq();
-      cache = { ts: Date.now(), ...stooq };
-      if (debug) debugInfo.tried.push({ src: 'Stooq', ok: true });
-      return ok(stooq, debug ? debugInfo : undefined);
+      const y = await getFromYahoo();
+      cache = { ts: Date.now(), ...y };
+      if (debug) dbg.tried.push({ src: 'Yahoo', ok: true });
+      return ok(y, debug ? dbg : undefined);
     } catch (e) {
-      if (debug) debugInfo.tried.push({ src: 'Stooq', ok: false, err: String(e.message || e) });
+      if (debug) dbg.tried.push({ src: 'Yahoo', ok: false, err: String(e.message || e) });
     }
 
-    // Finally, fallback to cache (if fresh)
+    try {
+      const s = await getFromStooq();
+      cache = { ts: Date.now(), ...s };
+      if (debug) dbg.tried.push({ src: 'Stooq', ok: true });
+      return ok(s, debug ? dbg : undefined);
+    } catch (e) {
+      if (debug) dbg.tried.push({ src: 'Stooq', ok: false, err: String(e.message || e) });
+    }
+
     const age = Date.now() - cache.ts;
     if (cache.price != null && age < CACHE_MS) {
-      if (debug) debugInfo.tried.push({ src: 'Cache', ok: true, ageMs: age });
-      return ok({ price: cache.price, changePercent: cache.changePercent, source: 'Cached ^VIX' }, debug ? debugInfo : undefined);
+      if (debug) dbg.tried.push({ src: 'Cache', ok: true, ageMs: age });
+      return ok({ price: cache.price, changePercent: cache.changePercent, source: 'Cached ^VIX' }, debug ? dbg : undefined);
     }
 
-    // Everything failed
-    return fail('All sources failed and no fresh cache', debug ? debugInfo : undefined);
+    return fail('All sources failed and no fresh cache', debug ? dbg : undefined);
 
   } catch (err) {
-    return fail(String(err?.message || err), debug ? debugInfo : undefined);
+    return fail(String(err?.message || err), debug ? dbg : undefined);
   }
 }
 
-// helpers for responses
+// response helpers
 function ok(payload, debugInfo) {
   const body = debugInfo ? { ...payload, _debug: debugInfo, timestamp: new Date().toISOString() }
                          : { ...payload, timestamp: new Date().toISOString() };
