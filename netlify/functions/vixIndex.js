@@ -1,9 +1,6 @@
 // netlify/functions/vixIndex.js
-// Prefer FRED (daily close, reliable) → then intraday fallbacks (FMP, CBOE, Stooq).
-// Returns cached value if all sources fail.
-
-const FRED_KEY = process.env.FRED_KEY;
-const FMP_KEY  = process.env.FMP_KEY;
+// Robust VIX (^VIX) fetcher with layered fallbacks and caching.
+// Order: FRED (VIXCLS) → FMP → CBOE CSV → Stooq CSV → recent in-memory cache.
 
 let cached = {
   price: null,
@@ -12,144 +9,262 @@ let cached = {
   timestamp: 0,
 };
 
-const JSON_HDRS = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Cache-Control': 'no-store, must-revalidate',
-};
+const FMP_KEY = process.env.FMP_KEY || '';
 
-// ---------- Sources ----------
-async function fromFRED() {
-  if (!FRED_KEY) throw new Error('FRED_KEY missing');
-  // Last 10 observations, newest first
-  const url = `https://api.stlouisfed.org/fred/series/observations?series_id=VIXCLS&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=10`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  const json = await res.json();
-  if (!json || !Array.isArray(json.observations)) throw new Error('FRED: bad payload');
+/** Small helpers */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const vals = json.observations
-    .filter(o => o.value !== '.')
-    .map(o => ({ date: o.date, v: Number(o.value) }));
-
-  if (vals.length === 0) throw new Error('FRED: no numeric values');
-
-  const latest = vals[0].v;
-  let changePercent = null;
-  if (vals.length > 1 && vals[1].v !== 0) {
-    changePercent = ((latest - vals[1].v) / vals[1].v) * 100;
+async function fetchJsonWithRetry(url, attempts = 3, delay = 300) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NetlifyFunction/1.0)' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await sleep(delay * (i + 1));
+    }
   }
-
-  return { price: latest, changePercent, source: 'FRED VIXCLS (daily close)' };
+  throw lastErr || new Error('fetchJsonWithRetry: unknown error');
 }
 
+async function fetchTextWithRetry(url, attempts = 3, delay = 300) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NetlifyFunction/1.0)' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+      return await res.text();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await sleep(delay * (i + 1));
+    }
+  }
+  throw lastErr || new Error('fetchTextWithRetry: unknown error');
+}
+
+/** 1) FRED — daily close series VIXCLS (rock-solid fallback) */
+async function fromFRED() {
+  const key = process.env.FRED_KEY;
+  if (!key) throw new Error('FRED_KEY missing');
+  const url = `https://api.stlouisfed.org/fred/series/observations?series_id=VIXCLS&api_key=${key}&file_type=json&sort_order=desc&limit=15`;
+  const json = await fetchJsonWithRetry(url, 3, 300);
+  const obs = (json?.observations || [])
+    .filter((o) => o.value !== '.')
+    .map((o) => ({ date: o.date, val: Number(o.value) }))
+    .filter((o) => Number.isFinite(o.val));
+
+  if (obs.length < 1) throw new Error('FRED VIXCLS: no numeric observations');
+  const latest = obs[0];
+  const prev = obs.find((x, idx) => idx > 0); // next valid numeric
+  const change =
+    prev && prev.val !== 0
+      ? Number((((latest.val - prev.val) / prev.val) * 100).toFixed(2))
+      : null;
+
+  return {
+    price: Number(latest.val.toFixed(2)),
+    changePercent: change,
+    source: 'FRED VIXCLS (daily close)',
+  };
+}
+
+/** 2) FinancialModelingPrep — intraday quote (may rate-limit) */
 async function fromFMP() {
   if (!FMP_KEY) throw new Error('FMP_KEY missing');
   const url = `https://financialmodelingprep.com/api/v3/quote/%5EVIX?apikey=${FMP_KEY}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  const arr = await res.json();
-  if (!Array.isArray(arr) || !arr[0]) throw new Error('FMP: no rows');
-  const price = Number(arr[0].price);
-  const cp    = arr[0].changesPercentage == null ? null : Number(arr[0].changesPercentage);
-  if (Number.isNaN(price)) throw new Error('FMP: bad price');
-  return { price, changePercent: Number.isNaN(cp) ? null : cp, source: 'FMP ^VIX (intraday)' };
+  const arr = await fetchJsonWithRetry(url, 2, 400);
+  if (!Array.isArray(arr) || arr.length === 0) throw new Error('FMP: empty response');
+  const q = arr[0] || {};
+  const price = Number(q.price ?? q.previousClose ?? q.dayHigh ?? q.dayLow);
+  const changePercent = Number(q.changesPercentage ?? q.changePercent ?? q.change);
+  if (!Number.isFinite(price)) throw new Error('FMP: no usable price');
+  const pct = Number.isFinite(changePercent)
+    ? Number(changePercent.toFixed(2))
+    : null;
+  return { price: Number(price.toFixed(2)), changePercent: pct, source: 'FMP ^VIX' };
 }
 
+/** 3) CBOE CSV — official daily history */
 async function fromCBOE() {
-  const url = 'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv';
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  const csv = (await res.text()).trim();
-  const lines = csv.split('\n').filter(Boolean);
+  const csv = await fetchTextWithRetry(
+    'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv',
+    2,
+    400
+  );
+  const lines = csv.trim().split('\n').filter(Boolean);
   if (lines.length < 2) throw new Error('CBOE: no data rows');
+  // header: DATE,OPEN,HIGH,LOW,CLOSE
+  // Take last two data lines:
+  const last = lines[lines.length - 1].split(',');
+  if (last.length < 5) throw new Error('CBOE: malformed row');
+  const close = Number(last[4]);
+  if (!Number.isFinite(close)) throw new Error('CBOE: bad close');
 
-  // Find the last two lines that have numeric close
-  function parseLine(l) {
-    const parts = l.split(',').map(s => s.trim());
-    const close = Number(parts[parts.length - 1]); // last column is "VIX Close"
-    return Number.isNaN(close) ? null : close;
-  }
-  let latest, prev, i = lines.length - 1;
-  while (i > 0 && latest == null) { latest = parseLine(lines[i]); i--; }
-  while (i > 0 && prev   == null) { prev   = parseLine(lines[i]); i--; }
-  if (latest == null) throw new Error('CBOE: no usable close');
-
-  let changePercent = null;
-  if (prev != null && prev !== 0) changePercent = ((latest - prev) / prev) * 100;
-
-  return { price: latest, changePercent, source: 'CBOE CSV (daily close)' };
-}
-
-async function fromStooq() {
-  const url = 'https://stooq.com/q/d/l/?s=%5Evix&i=d';
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  const text = (await res.text()).trim();
-  if (!text || text === 'NO DATA') throw new Error('Stooq: no usable data');
-  const rows = text.split('\n').filter(Boolean);
-  if (rows.length < 2) throw new Error('Stooq: no data rows');
-  const last = rows[rows.length - 1].split(',');
-  const prev = rows.length > 2 ? rows[rows.length - 2].split(',') : null;
-  const price = Number(last[4]);
-  if (Number.isNaN(price)) throw new Error('Stooq: bad close');
-  let changePercent = null;
-  if (prev) {
-    const p = Number(prev[4]);
-    if (!Number.isNaN(p) && p !== 0) changePercent = ((price - p) / p) * 100;
-  }
-  return { price, changePercent, source: 'Stooq CSV ^VIX (daily close)' };
-}
-
-// ---------- Handler ----------
-exports.handler = async () => {
-  const tried = [];
-
-  // Prefer FRED first (reliable), then intraday-ish fallbacks.
-  const sources = [fromFRED, fromFMP, fromCBOE, fromStooq];
-
-  for (const fn of sources) {
-    try {
-      const { price, changePercent, source } = await fn();
-      // Update in-memory cache
-      cached = { price, changePercent: changePercent ?? null, source, timestamp: Date.now() };
-      return {
-        statusCode: 200,
-        headers: JSON_HDRS,
-        body: JSON.stringify({
-          price,
-          changePercent: changePercent == null ? null : Number(changePercent.toFixed(2)),
-          source,
-          timestamp: new Date().toISOString(),
-        }),
-      };
-    } catch (e) {
-      tried.push({ src: fn.name.replace('from', ''), ok: false, err: e.message });
+  let change = null;
+  if (lines.length >= 3) {
+    const prev = lines[lines.length - 2].split(',');
+    if (prev.length >= 5) {
+      const pClose = Number(prev[4]);
+      if (Number.isFinite(pClose) && pClose !== 0) {
+        change = Number((((close - pClose) / pClose) * 100).toFixed(2));
+      }
     }
   }
+  return { price: Number(close.toFixed(2)), changePercent: change, source: 'CBOE CSV' };
+}
 
-  // Cache fallback (6h)
-  if (cached.price != null && Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
+/** 4) Stooq CSV — community mirror */
+async function fromStooq() {
+  const csv = await fetchTextWithRetry('https://stooq.com/q/d/l/?s=%5Evix&i=d', 2, 400);
+  const trimmed = csv.trim();
+  if (!trimmed || trimmed === 'NO DATA') throw new Error('Stooq: NO DATA');
+  const lines = trimmed.split('\n').filter(Boolean);
+  if (lines.length < 2) throw new Error('Stooq: no rows');
+  const last = lines[lines.length - 1].split(',');
+  if (last.length < 5) throw new Error('Stooq: malformed row');
+  const close = Number(last[4]);
+  if (!Number.isFinite(close)) throw new Error('Stooq: bad close');
+  let change = null;
+  if (lines.length >= 3) {
+    const prev = lines[lines.length - 2].split(',');
+    const pClose = Number(prev[4]);
+    if (Number.isFinite(pClose) && pClose !== 0) {
+      change = Number((((close - pClose) / pClose) * 100).toFixed(2));
+    }
+  }
+  return { price: Number(close.toFixed(2)), changePercent: change, source: 'Stooq CSV' };
+}
+
+/** Main handler */
+exports.handler = async function () {
+  const tried = [];
+  try {
+    // 1) Prefer FRED (stable, no rate limits)
+    try {
+      const r = await fromFRED();
+      tried.push({ src: 'FRED', ok: true });
+      cached = { ...r, timestamp: Date.now() };
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store, must-revalidate',
+        },
+        body: JSON.stringify({ ...r, timestamp: new Date().toISOString() }),
+      };
+    } catch (e) {
+      tried.push({ src: 'FRED', ok: false, err: e.message });
+    }
+
+    // 2) FMP (intraday, but can 429)
+    try {
+      const r = await fromFMP();
+      tried.push({ src: 'FMP', ok: true });
+      cached = { ...r, timestamp: Date.now() };
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store, must-revalidate',
+        },
+        body: JSON.stringify({ ...r, timestamp: new Date().toISOString() }),
+      };
+    } catch (e) {
+      tried.push({ src: 'FMP', ok: false, err: e.message });
+    }
+
+    // 3) CBOE CSV
+    try {
+      const r = await fromCBOE();
+      tried.push({ src: 'CBOE', ok: true });
+      cached = { ...r, timestamp: Date.now() };
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store, must-revalidate',
+        },
+        body: JSON.stringify({ ...r, timestamp: new Date().toISOString() }),
+      };
+    } catch (e) {
+      tried.push({ src: 'CBOE', ok: false, err: e.message });
+    }
+
+    // 4) Stooq CSV
+    try {
+      const r = await fromStooq();
+      tried.push({ src: 'Stooq', ok: true });
+      cached = { ...r, timestamp: Date.now() };
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store, must-revalidate',
+        },
+        body: JSON.stringify({ ...r, timestamp: new Date().toISOString() }),
+      };
+    } catch (e) {
+      tried.push({ src: 'Stooq', ok: false, err: e.message });
+    }
+
+    // 5) Recent cache (<= 2h)
+    const ageMs = Date.now() - cached.timestamp;
+    if (cached.price != null && ageMs < 2 * 60 * 60 * 1000) {
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store, must-revalidate',
+        },
+        body: JSON.stringify({
+          price: cached.price,
+          changePercent: cached.changePercent,
+          source: cached.source + ' (cached)',
+          timestamp: new Date().toISOString(),
+          _debug: { tried },
+        }),
+      };
+    }
+
+    // All failed
     return {
-      statusCode: 200,
-      headers: JSON_HDRS,
+      statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, must-revalidate',
+      },
       body: JSON.stringify({
-        price: cached.price,
-        changePercent: cached.changePercent,
-        source: `Cached last good VIX (${cached.source})`,
+        error: 'All sources failed and no fresh cache',
+        _debug: { tried },
+        timestamp: new Date().toISOString(),
+      }),
+    };
+  } catch (err) {
+    // Unexpected crash
+    return {
+      statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, must-revalidate',
+      },
+      body: JSON.stringify({
+        error: err.message || 'Unhandled error',
+        _debug: { tried },
         timestamp: new Date().toISOString(),
       }),
     };
   }
-
-  // All failed
-  return {
-    statusCode: 500,
-    headers: JSON_HDRS,
-    body: JSON.stringify({
-      error: 'All sources failed and no fresh cache',
-      _debug: { tried },
-      timestamp: new Date().toISOString(),
-    }),
-  };
 };
