@@ -373,11 +373,85 @@
     }
   }
 
+  // ──────────────────────────────────────────────────────────────
+  // VIX Index (^VIX) — fetch direct from function and render
+  // ──────────────────────────────────────────────────────────────
+  async function refreshVIXIndex() {
+    const spinner = document.getElementById('vix-index-spinner');
+    if (spinner) spinner.style.display = 'inline-block';
+
+    try {
+      const res = await fetch('/.netlify/functions/vixIndex?bust=' + Date.now());
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+
+      const price = Number(json.price);
+      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
+        ? null : Number(json.changePercent);
+      if (!Number.isFinite(price)) throw new Error('Bad price from vixIndex');
+
+      const valEl = document.getElementById('vix-index');
+      if (valEl) valEl.textContent = price.toFixed(2);
+
+      const changeEl = document.getElementById('vix-index-change');
+      if (changeEl) {
+        if (typeof change === 'number') {
+          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else {
+          changeEl.textContent = '';
+          changeEl.className = 'change';
+        }
+      }
+
+      const tsEl = document.getElementById('vix-index-updated');
+      if (tsEl) tsEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+      setStatus(document.getElementById('vix-index-status'), 'LIVE');
+
+      // cache it
+      cacheSet('vix-index', { price, change });
+    } catch (e) {
+      console.error('VIX Index error', e);
+      const c = cacheGet('vix-index');
+      if (c?.data) {
+        const { price, change } = c.data;
+        const valEl = document.getElementById('vix-index');
+        if (valEl) valEl.textContent = Number(price).toFixed(2);
+
+        const changeEl = document.getElementById('vix-index-change');
+        if (changeEl && typeof change === 'number') {
+          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else if (changeEl) {
+          changeEl.textContent = '';
+          changeEl.className = 'change';
+        }
+
+        const tsEl = document.getElementById('vix-index-updated');
+        if (tsEl) tsEl.textContent = 'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
+
+        setStatus(document.getElementById('vix-index-status'), 'CACHED');
+      } else {
+        const valEl = document.getElementById('vix-index');
+        if (valEl) valEl.textContent = 'Error';
+        setStatus(document.getElementById('vix-index-status'), 'ERROR');
+      }
+    } finally {
+      if (spinner) spinner.style.display = 'none';
+      if (typeof refreshRiskTemperature === 'function') refreshRiskTemperature();
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
+    refreshVIXIndex();               // ← added
     setInterval(refreshAllWidgets, 120000);
+    setInterval(refreshVIXIndex, 120000); // ← added
   });
 </script>
+
 
 </body>
 </html>
