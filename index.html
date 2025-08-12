@@ -185,7 +185,38 @@
         <div class="stale" id="lithium-stale" style="display:none;">Using cached value</div>
         <div class="timestamp" id="lithium-updated">Updated: --</div>
       </div>
+      
+      <!-- GOLD -->
+<div class="card" data-widget="gold" id="card-gold">
+  <div class="small-label">Commodity</div>
+  <h2>Gold (USD/oz)</h2>
+  <div class="value" id="gold">
+    -- <span id="gold-spinner" class="spinner" style="display:none;"></span>
+  </div>
+  <div class="mini">
+    <div class="change" id="gold-change"></div>
+    <div id="gold-status" class="badge">--</div>
+  </div>
+  <div class="stale" id="gold-stale" style="display:none;">Using cached value</div>
+  <div class="timestamp" id="gold-updated">Updated: --</div>
+</div>
 
+<!-- DXY (Broad USD index) -->
+<div class="card" data-widget="dxy" id="card-dxy">
+  <div class="small-label">Currency</div>
+  <h2>USD Broad Index (FRED)</h2>
+  <div class="value" id="dxy">
+    -- <span id="dxy-spinner" class="spinner" style="display:none;"></span>
+  </div>
+  <div class="mini">
+    <div class="change" id="dxy-change"></div>
+    <div id="dxy-status" class="badge">--</div>
+  </div>
+  <div class="stale" id="dxy-stale" style="display:none;">Using cached value</div>
+  <div class="timestamp" id="dxy-updated">Updated: --</div>
+</div>
+
+      
       <div class="card" data-widget="vixy" id="card-vixy">
         <div class="small-label">Volatility</div>
         <h2>VIXY</h2>
@@ -259,7 +290,7 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Risk Meter: always recompute from DOM (stable across devices)
+  // Risk Meter (now includes Gold + DXY)
   // ──────────────────────────────────────────────────────────────
   function ensureRiskGauge() {
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -271,29 +302,33 @@
       const m = t.match(/-?\d+(\.\d+)?/);
       return m ? parseFloat(m[0]) : NaN;
     };
+    const signedPctFrom = (id) => {
+      const val = getNum('#' + id, true);
+      const txt = (document.getElementById(id)?.textContent || '');
+      if (!Number.isFinite(val)) return NaN;
+      return (/▼|−|-/.test(txt) ? -1 : 1) * Math.abs(val);
+    };
 
-    // Read current rendered values
-    const vix = getNum('#vix-index');          // preferred
-    const vixy = getNum('#vix');               // fallback
+    const vix = getNum('#vix-index');     // prefer ^VIX widget
+    const vixy= getNum('#vix');           // fallback
     const useVix = Number.isFinite(vix) ? vix : vixy;
 
-    const spread = getNum('#yield', true);     // e.g., 0.51 (already % units)
-    const buff   = getNum('#buffett', true);   // e.g., 195 (%)
-    const spyPct = getNum('#sp500-change', true);
-    const spyTxt = (document.getElementById('sp500-change')?.textContent || '');
-    const spySigned = /▼|−|-/.test(spyTxt) ? -Math.abs(spyPct) : Math.abs(spyPct);
+    const spread = getNum('#yield', true);
+    const buff   = getNum('#buffett', true);
+    const spy    = signedPctFrom('sp500-change');
+    const gold   = signedPctFrom('gold-change');
+    const dxy    = signedPctFrom('dxy-change');
 
-    // Normalize to [0..100] and weight
-    const wVix = 0.35, wYC = 0.25, wBuff = 0.30, wSP = 0.10;
+    // Weights sum to 1.00
+    const wVix=0.30, wYC=0.25, wBuff=0.25, wSP=0.10, wGold=0.05, wDxy=0.05;
 
-    let vixScore = 0;
+    let vixScore=0, ycScore=0, buffScore=0, spScore=0, goldScore=0, dxyScore=0;
+
     if (Number.isFinite(useVix)) {
-      // 12 → 0 risk, 35 → 100 risk
+      // 12 → 0 risk, 35 → 100
       const t = clamp((useVix - 12) / (35 - 12), 0, 1);
       vixScore = t * 100 * wVix;
     }
-
-    let ycScore = 0;
     if (Number.isFinite(spread)) {
       // +1.0% → 0, 0% → 50, -1.0% → 100
       let t;
@@ -302,24 +337,29 @@
       else t = (1 - spread) / 2;
       ycScore = clamp(t,0,1) * 100 * wYC;
     }
-
-    let buffScore = 0;
     if (Number.isFinite(buff)) {
       // 120% → 0, 220% → 100
       const t = clamp((buff - 120) / 100, 0, 1);
       buffScore = t * 100 * wBuff;
     }
-
-    let spScore = 0;
-    if (Number.isFinite(spySigned)) {
-      // -2% day → 100, +2% → 0
-      const t = clamp(-spySigned / 2, 0, 1);
+    if (Number.isFinite(spy)) {
+      // -2% → 100, +2% → 0
+      const t = clamp(-spy / 2, 0, 1);
       spScore = t * 100 * wSP;
     }
+    if (Number.isFinite(gold)) {
+      // +2% gold pop → 100 (risk-on stress), negative → 0
+      const t = clamp(gold / 2, 0, 1);
+      goldScore = t * 100 * wGold;
+    }
+    if (Number.isFinite(dxy)) {
+      // USD: -1% → 0, +1% → 100
+      const t = clamp((dxy + 1) / 2, 0, 1);
+      dxyScore = t * 100 * wDxy;
+    }
 
-    const score = clamp(vixScore + ycScore + buffScore + spScore, 0, 100);
+    const score = clamp(vixScore + ycScore + buffScore + spScore + goldScore + dxyScore, 0, 100);
 
-    // Label
     const classify = (s)=>{
       if (s >= 65) return 'High';
       if (s >= 55) return 'Elevated';
@@ -328,7 +368,6 @@
       return 'Calm';
     };
 
-    // Render
     const scoreEl = document.getElementById('risk-temp-score');
     const labelEl = document.getElementById('risk-temp-status');
     const needle  = document.getElementById('risk-temp-needle');
@@ -346,9 +385,17 @@
     if (Number.isFinite(useVix)) bits.push(`VIX ${useVix.toFixed(2)}`);
     if (Number.isFinite(spread)) bits.push(`YC ${spread.toFixed(2)}%`);
     if (Number.isFinite(buff))   bits.push(`Buffett ${buff.toFixed(0)}%`);
-    if (Number.isFinite(spySigned)) {
-      const arrow = spySigned >= 0 ? '+' : '';
-      bits.push(`S&P ${arrow}${spySigned.toFixed(2)}%`);
+    if (Number.isFinite(spy)) {
+      const arrow = spy >= 0 ? '+' : '';
+      bits.push(`S&P ${arrow}${spy.toFixed(2)}%`);
+    }
+    if (Number.isFinite(gold)) {
+      const arrow = gold >= 0 ? '+' : '';
+      bits.push(`Gold ${arrow}${gold.toFixed(2)}%`);
+    }
+    if (Number.isFinite(dxy)) {
+      const arrow = dxy >= 0 ? '+' : '';
+      bits.push(`DXY ${arrow}${dxy.toFixed(2)}%`);
     }
     if (detailsEl) detailsEl.textContent = bits.join(' · ');
     if (updEl) updEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
@@ -359,14 +406,12 @@
       if (typeof refreshRiskTemperature === 'function') {
         refreshRiskTemperature();
       }
-    } catch (e) {
-      console.warn('refreshRiskTemperature() threw; using fallback:', e);
-    }
-    ensureRiskGauge(); // always recompute from current DOM
+    } catch {}
+    ensureRiskGauge();
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Unified fetch + cache-fallback
+  // Unified fetch + cache-fallback (unchanged)
   // ──────────────────────────────────────────────────────────────
   async function refreshAllWidgets() {
     let results = {};
@@ -443,7 +488,7 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // Guard against an empty {} for Estimated Buffett
+    // Guard Estimated Buffett
     if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
       results.estimatedBuffett = { error: 'No data' };
     }
@@ -473,12 +518,12 @@
       }
     });
 
-    // Recalc the aggregate gauge (fallback-safe)
+    // Update the gauge after these widgets render
     safeRefreshRiskTemperature();
   }
 
   // ──────────────────────────────────────────────────────────────
-  // VIX Index (^VIX) — fetch direct from function and render
+  // VIX Index (^VIX) — existing
   // ──────────────────────────────────────────────────────────────
   async function refreshVIXIndex() {
     const spinner = document.getElementById('vix-index-spinner');
@@ -543,7 +588,122 @@
       }
     } finally {
       if (spinner) spinner.style.display = 'none';
-      // Recompute risk meter after VIX updates
+      safeRefreshRiskTemperature();
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // GOLD — from /.netlify/functions/gold
+  // ──────────────────────────────────────────────────────────────
+  async function refreshGold() {
+    const spinner = document.getElementById('gold-spinner');
+    if (spinner) spinner.style.display = 'inline-block';
+    try {
+      const res = await fetch('/.netlify/functions/gold?bust=' + Date.now());
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+
+      const price = Number(json.price);
+      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
+        ? null : Number(json.changePercent);
+      if (!Number.isFinite(price)) throw new Error('Bad price from gold');
+
+      const valEl = document.getElementById('gold');
+      if (valEl) valEl.textContent = price.toFixed(2);
+
+      const chEl = document.getElementById('gold-change');
+      if (chEl) {
+        if (typeof change === 'number') {
+          chEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          chEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else {
+          chEl.textContent = '';
+          chEl.className = 'change';
+        }
+      }
+      setStatus(document.getElementById('gold-status'), 'LIVE');
+      document.getElementById('gold-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+      cacheSet('gold', { price, change });
+    } catch (e) {
+      console.error('Gold error', e);
+      const c = cacheGet('gold');
+      if (c?.data) {
+        const { price, change } = c.data;
+        const valEl = document.getElementById('gold');
+        if (valEl) valEl.textContent = Number(price).toFixed(2);
+        const chEl = document.getElementById('gold-change');
+        if (chEl && typeof change === 'number') {
+          chEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          chEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        }
+        document.getElementById('gold-updated').textContent =
+          'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
+        setStatus(document.getElementById('gold-status'), 'CACHED');
+      } else {
+        document.getElementById('gold').textContent = 'Error';
+        setStatus(document.getElementById('gold-status'), 'ERROR');
+      }
+    } finally {
+      if (spinner) spinner.style.display = 'none';
+      safeRefreshRiskTemperature();
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // DXY — from /.netlify/functions/dxy
+  // ──────────────────────────────────────────────────────────────
+  async function refreshDXY() {
+    const spinner = document.getElementById('dxy-spinner');
+    if (spinner) spinner.style.display = 'inline-block';
+    try {
+      const res = await fetch('/.netlify/functions/dxy?bust=' + Date.now());
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+
+      const price = Number(json.price);
+      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
+        ? null : Number(json.changePercent);
+      if (!Number.isFinite(price)) throw new Error('Bad price from dxy');
+
+      const valEl = document.getElementById('dxy');
+      if (valEl) valEl.textContent = price.toFixed(2);
+
+      const chEl = document.getElementById('dxy-change');
+      if (chEl) {
+        if (typeof change === 'number') {
+          chEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          chEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else {
+          chEl.textContent = '';
+          chEl.className = 'change';
+        }
+      }
+      setStatus(document.getElementById('dxy-status'), 'LIVE');
+      document.getElementById('dxy-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+      cacheSet('dxy', { price, change });
+    } catch (e) {
+      console.error('DXY error', e);
+      const c = cacheGet('dxy');
+      if (c?.data) {
+        const { price, change } = c.data;
+        const valEl = document.getElementById('dxy');
+        if (valEl) valEl.textContent = Number(price).toFixed(2);
+        const chEl = document.getElementById('dxy-change');
+        if (chEl && typeof change === 'number') {
+          chEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          chEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        }
+        document.getElementById('dxy-updated').textContent =
+          'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
+        setStatus(document.getElementById('dxy-status'), 'CACHED');
+      } else {
+        document.getElementById('dxy').textContent = 'Error';
+        setStatus(document.getElementById('dxy-status'), 'ERROR');
+      }
+    } finally {
+      if (spinner) spinner.style.display = 'none';
       safeRefreshRiskTemperature();
     }
   }
@@ -551,9 +711,14 @@
   document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
     refreshVIXIndex();
+    refreshGold();
+    refreshDXY();
+
     setInterval(refreshAllWidgets, 120000);
     setInterval(refreshVIXIndex, 120000);
-    // periodic sanity refresh of gauge in case of late updates
+    setInterval(refreshGold, 120000);
+    setInterval(refreshDXY, 120000);
+
     setInterval(safeRefreshRiskTemperature, 30000);
   });
 </script>
