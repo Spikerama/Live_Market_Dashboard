@@ -224,15 +224,12 @@
 <script>
   const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
 
-  // —— cache namespace (bump this string after a deploy to force a fresh cache everywhere)
-  const CACHE_NS = 'v3';
-
   function cacheSet(key, obj) {
-    try { localStorage.setItem(`${CACHE_NS}:${key}`, JSON.stringify({ ts: Date.now(), data: obj })); }
+    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); }
     catch {}
   }
   function cacheGet(key) {
-    try { return JSON.parse(localStorage.getItem(`${CACHE_NS}:${key}`)); }
+    try { return JSON.parse(localStorage.getItem(key)); }
     catch { return null; }
   }
 
@@ -376,6 +373,123 @@
   }
 
   // ──────────────────────────────────────────────────────────────
+  // Risk Temperature (adds VIX regime + VIX move without double-counting)
+  // ──────────────────────────────────────────────────────────────
+  function refreshRiskTemperature() {
+    const now = new Date();
+
+    // pull cached data
+    const est      = cacheGet('estimated-buffett')?.data;
+    const yieldc   = cacheGet('yield')?.data;
+    const spy      = cacheGet('sp500')?.data;
+    const tsla     = cacheGet('tsla')?.data;
+    const lithium  = cacheGet('lithium')?.data;
+
+    // VIX sources
+    const vixIdxC  = cacheGet('vix-index')?.data;   // { price, change }
+    const vixyC    = cacheGet('vix')?.data;         // { price, pct }
+
+    const vixPrice     = (vixIdxC && Number.isFinite(Number(vixIdxC.price))) ? Number(vixIdxC.price) : null;
+    const vixIdxChange = (vixIdxC && typeof vixIdxC.change === 'number') ? vixIdxC.change : null; // %
+    const vixyChange   = (vixyC   && typeof vixyC.pct   === 'number') ? vixyC.pct   : null;       // %
+
+    // choose the larger intraday move (only contributes if > 0)
+    let chosenMove = null, chosenMoveSrc = '';
+    if (typeof vixIdxChange === 'number') { chosenMove = vixIdxChange; chosenMoveSrc = '^VIX'; }
+    if (typeof vixyChange === 'number' && (chosenMove == null || vixyChange > chosenMove)) {
+      chosenMove = vixyChange; chosenMoveSrc = 'VIXY';
+    }
+
+    // scoring
+    let score = 0;
+    const parts = [];
+
+    // 1) Buffett valuation (0–30 pts), ratio can be % or ×
+    if (est && typeof est.ratio === 'number') {
+      const r = est.ratio > 10 ? est.ratio / 100 : est.ratio;   // normalize to ×
+      const buffScore = Math.min(Math.max(r, 0), 5) * 6;        // 0–5× -> 0–30
+      score += buffScore;
+      parts.push(`Buffett ${r.toFixed(2)}× → ${buffScore.toFixed(1)}`);
+    }
+
+    // 2) Yield spread (+2…–1 → 0–25 pts)
+    if (yieldc && typeof yieldc.spread === 'number') {
+      const clamped = Math.max(Math.min(yieldc.spread, 2), -1);
+      const yScore  = (2 - clamped) / 3 * 25;
+      score += yScore;
+      parts.push(`Yield ${yieldc.spread.toFixed(2)}% → ${yScore.toFixed(1)}`);
+    }
+
+    // 3) SPY drop (0…–3% → 0–15 pts)
+    if (spy && typeof spy.pct === 'number') {
+      const sScore = Math.min(Math.max(-spy.pct, 0), 3) / 3 * 15;
+      score += sScore;
+      parts.push(`SPY ${spy.pct.toFixed(2)}% → ${sScore.toFixed(1)}`);
+    }
+
+    // 4a) VIX level (use ^VIX price) → 0–10 pts (12→0, 30→10; clamped)
+    if (vixPrice != null) {
+      const low = 12, high = 30;
+      const t = Math.max(0, Math.min(1, (vixPrice - low) / (high - low)));
+      const vixLevelScore = t * 10;
+      score += vixLevelScore;
+      parts.push(`VIX lvl ${vixPrice.toFixed(2)} → ${vixLevelScore.toFixed(1)}`);
+    }
+
+    // 4b) VIX move (take larger of VIXY or ^VIX % move) → 0–5 pts (up moves only)
+    if (typeof chosenMove === 'number') {
+      const up = Math.max(chosenMove, 0); // only rises add risk
+      const vixMoveScore = Math.min(up, 5) / 5 * 5; // cap at +5%
+      score += vixMoveScore;
+      parts.push(`VIX move (${chosenMoveSrc}) ${chosenMove.toFixed(2)}% → ${vixMoveScore.toFixed(1)}`);
+    }
+
+    // 5) TSLA drop (0…–5% → 0–10 pts)
+    if (tsla && typeof tsla.pct === 'number') {
+      const tScore = Math.min(Math.max(-tsla.pct, 0), 5) / 5 * 10;
+      score += tScore;
+      parts.push(`TSLA ${tsla.pct.toFixed(2)}% → ${tScore.toFixed(1)}`);
+    }
+
+    // 6) Lithium move (|±5%| → 0–5 pts)
+    if (lithium && typeof lithium.pct === 'number') {
+      const lScore = Math.min(Math.abs(lithium.pct), 5) / 5 * 5;
+      score += lScore;
+      parts.push(`LIT ${lithium.pct.toFixed(2)}% → ${lScore.toFixed(1)}`);
+    }
+
+    // clamp and paint
+    score = Math.max(0, Math.min(100, score));
+
+    const marker  = document.getElementById('risk-temp-marker');
+    const needle  = document.getElementById('risk-temp-needle');
+    const labelEl = document.getElementById('risk-temp-status');
+    const scoreEl = document.getElementById('risk-temp-score');
+    const details = document.getElementById('risk-temp-details');
+    const updated = document.getElementById('risk-temp-updated');
+    const color   = riskColor(score);
+
+    if (marker) { marker.style.left = `${score}%`; marker.style.background = color; }
+    if (needle) needle.style.left = `${score}%`;
+    if (scoreEl) scoreEl.textContent = `${score.toFixed(1)}%`;
+
+    let statusText = 'Normal';
+    if (score >= 65)      statusText = 'High Risk';
+    else if (score >= 40) statusText = 'Caution';
+    else if (score >= 25) statusText = 'Elevated';
+    if (labelEl) { labelEl.textContent = statusText; labelEl.style.color = color; labelEl.style.background = 'none'; }
+
+    if (details) details.textContent = parts.join(' · ');
+    if (updated) updated.textContent = 'Updated: ' + now.toLocaleTimeString();
+
+    const card = document.getElementById('card-risk-temp');
+    if (card) {
+      if (score >= 70) card.classList.add('alert');
+      else card.classList.remove('alert');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // VIX Index (^VIX) — fetch direct from function and render
   // ──────────────────────────────────────────────────────────────
   async function refreshVIXIndex() {
@@ -448,15 +562,12 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
-    refreshVIXIndex();
+    refreshVIXIndex();               // ← ensure VIX index fetch runs
     setInterval(refreshAllWidgets, 120000);
     setInterval(refreshVIXIndex, 120000);
   });
 </script>
 
 
-
 </body>
 </html>
-
-
