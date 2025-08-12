@@ -224,35 +224,13 @@
 <script>
   const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
 
-  // —— cache namespace (keep this); we'll migrate from old keys automatically
-  const CACHE_NS = 'v3';
-
   function cacheSet(key, obj) {
-    try { localStorage.setItem(`${CACHE_NS}:${key}`, JSON.stringify({ ts: Date.now(), data: obj })); }
+    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); }
     catch {}
   }
   function cacheGet(key) {
-    try {
-      // try current namespace first, then legacy keys
-      const candidates = [
-        `${CACHE_NS}:${key}`,
-        `v2:${key}`,
-        `v1:${key}`,
-        key // very old, no namespace
-      ];
-      for (const k of candidates) {
-        const raw = localStorage.getItem(k);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          // if it came from a legacy key, re-save under the current namespace
-          if (k !== `${CACHE_NS}:${key}`) {
-            try { localStorage.setItem(`${CACHE_NS}:${key}`, raw); } catch {}
-          }
-          return parsed;
-        }
-      }
-    } catch {}
-    return null;
+    try { return JSON.parse(localStorage.getItem(key)); }
+    catch { return null; }
   }
 
   function setStatus(el, type) {
@@ -278,6 +256,114 @@
     return score <= 50
       ? interpolateColor('#28c17d','#ffcd3c', score/50)
       : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Risk Temperature — uses current DOM values (no history needed)
+  // ──────────────────────────────────────────────────────────────
+  function refreshRiskTemperature() {
+    const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+    const numFromEl = (id) => {
+      const el = document.getElementById(id);
+      if (!el) return null;
+      const t = (el.textContent || '').trim();
+      const n = parseFloat(t.replace(/[^0-9.\-]/g, ''));
+      return Number.isFinite(n) ? n : null;
+    };
+
+    // read what’s currently rendered
+    const vixIdx = numFromEl('vix-index');      // ^VIX (preferred)
+    const vixy   = numFromEl('vix');            // VIXY (fallback)
+    const vixUse = Number.isFinite(vixIdx) ? vixIdx : (Number.isFinite(vixy) ? vixy : null);
+
+    const ycSpread = numFromEl('yield');        // e.g. "0.53%" -> 0.53
+    const buffett  = numFromEl('buffett');      // e.g. "195.12%" -> 195.12
+
+    const spyChgPct  = (() => {
+      const el = document.getElementById('sp500-change');
+      if (!el) return null;
+      const n = parseFloat((el.textContent || '').replace(/[^0-9.\-]/g, ''));
+      return Number.isFinite(n) ? n : null;
+    })();
+
+    // score mappers (0 = calm/low risk, 100 = hot/high risk)
+    const vixRisk = (v) => {
+      if (v == null) return null;
+      // 12 -> 0, 20 -> ~44, 30 -> 100
+      const t = (v - 12) / (30 - 12);
+      return clamp(Math.round(t * 100), 0, 100);
+    };
+
+    const yieldRisk = (s) => {
+      if (s == null) return null;
+      if (s >= 1.5) return 10;
+      if (s >= 0.5) return 35;
+      if (s >= 0.0) return 60;
+      if (s >= -0.5) return 75;
+      if (s >= -1.0) return 90;
+      return 100;
+    };
+
+    const buffettRisk = (r) => {
+      if (r == null) return null;
+      if (r <= 120) return 20;
+      if (r <= 150) return 40;
+      if (r <= 180) return 60;
+      if (r <= 210) return 75;
+      if (r <= 240) return 88;
+      return 95;
+    };
+
+    const dailyChangeRisk = (p) => {
+      if (p == null) return null;
+      const x = clamp(p, -3, 3);
+      return clamp(Math.round(50 - (x * (50 / 3))), 0, 100);
+    };
+
+    const parts = [];
+    // weights: VIX 0.35 (or VIXY fallback), Yield 0.25, Buffett 0.25, S&P daily 0.15
+    const vixScore = vixRisk(vixUse);
+    if (vixScore != null) parts.push([vixScore, 0.35]);
+
+    const ycScore = yieldRisk(ycSpread);
+    if (ycScore != null) parts.push([ycScore, 0.25]);
+
+    const buffScore = buffettRisk(buffett);
+    if (buffScore != null) parts.push([buffScore, 0.25]);
+
+    const spyScore = dailyChangeRisk(spyChgPct);
+    if (spyScore != null) parts.push([spyScore, 0.15]);
+
+    if (!parts.length) return;
+
+    const totalW = parts.reduce((a, [_, w]) => a + w, 0);
+    const score = Math.round(parts.reduce((a, [s, w]) => a + s * w, 0) / (totalW || 1));
+
+    const status =
+      score <= 35 ? 'Calm' :
+      score <= 60 ? 'Watch' :
+      score <= 75 ? 'Caution' :
+      score <= 90 ? 'Elevated' : 'High';
+
+    const scoreEl  = document.getElementById('risk-temp-score');
+    const statusEl = document.getElementById('risk-temp-status');
+    const needle   = document.getElementById('risk-temp-needle');
+    const marker   = document.getElementById('risk-temp-marker');
+    const detailEl = document.getElementById('risk-temp-details');
+    const tsEl     = document.getElementById('risk-temp-updated');
+
+    if (scoreEl)  scoreEl.textContent = `${score}%`;
+    if (statusEl) statusEl.textContent = status;
+    if (needle)   needle.style.left = `${score}%`;
+    if (marker) { marker.style.left = `${score}%`; marker.style.background = riskColor(score); }
+    if (detailEl) {
+      const vixTxt = vixUse != null ? `VIX ${vixUse.toFixed(2)}` : 'VIX --';
+      const ycTxt  = ycSpread != null ? `YC ${ycSpread.toFixed(2)}%` : 'YC --';
+      const bufTxt = buffett != null ? `Buffett ${buffett.toFixed(0)}%` : 'Buffett --';
+      const spyTxt = (spyChgPct != null ? `S&P ${spyChgPct >= 0 ? '+' : ''}${spyChgPct.toFixed(2)}%` : 'S&P --');
+      detailEl.textContent = `${vixTxt} · ${ycTxt} · ${bufTxt} · ${spyTxt}`;
+    }
+    if (tsEl) tsEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -472,7 +558,6 @@
     setInterval(refreshVIXIndex, 120000);
   });
 </script>
-
 
 </body>
 </html>
