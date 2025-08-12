@@ -258,32 +258,114 @@
       : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
   }
 
-  // --- NEW: consistent labels without changing your scoring ---
-  function classifyRisk(score) {
+  // ---------- Risk gauge fallback (only used if your function doesn't render) ----------
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  function numFromText(selector, stripPercent=false) {
+    const el = document.querySelector(selector);
+    if (!el) return NaN;
+    let t = (el.textContent || '').trim();
+    if (stripPercent) t = t.replace('%','');
+    const m = t.match(/-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : NaN;
+  }
+  function classify(score){
     if (score >= 65) return 'High';
     if (score >= 55) return 'Elevated';
     if (score >= 40) return 'Caution';
     if (score >= 25) return 'Watch';
     return 'Calm';
   }
-  function fixRiskLabelFromDOM() {
+  function renderRisk(score, details) {
     const scoreEl = document.getElementById('risk-temp-score');
-    if (!scoreEl) return;
-    const m = (scoreEl.textContent || '').match(/[\d.]+/);
-    if (!m) return;
-    const score = parseFloat(m[0]);
-    if (!isFinite(score)) return;
-
     const labelEl = document.getElementById('risk-temp-status');
-    const color   = riskColor(score);
+    const needle  = document.getElementById('risk-temp-needle');
+    const detailsEl = document.getElementById('risk-temp-details');
+    const updEl   = document.getElementById('risk-temp-updated');
 
-    if (labelEl) {
-      labelEl.textContent = classifyRisk(score);
-      labelEl.style.color = color;
-      labelEl.style.background = 'none';
-    }
-    // Do NOT touch your needle/marker positions here—your existing code already handles that.
+    if (!scoreEl || !labelEl) return;
+    scoreEl.textContent = `${Math.round(score)}%`;
+    labelEl.textContent = classify(score);
+    labelEl.style.background = 'none';
+    labelEl.style.color = riskColor(score);
+    if (needle) needle.style.left = `${clamp(score,0,100)}%`;
+    if (detailsEl && details) detailsEl.textContent = details;
+    if (updEl) updEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
   }
+  function ensureRiskGauge() {
+    // If your own function already rendered a number, do nothing.
+    const txt = (document.getElementById('risk-temp-score')?.textContent || '');
+    if (/\d/.test(txt)) return;
+
+    // Fallback: compute from DOM values currently on the page
+    const vix = numFromText('#vix-index'); // ^VIX (preferred)
+    const vixy = numFromText('#vix');      // VIXY ETF (backup if ^VIX missing)
+    const useVix = Number.isFinite(vix) ? vix : vixy;
+
+    const spread = numFromText('#yield', true);     // e.g., "0.51%" -> 0.51
+    const buff   = numFromText('#buffett', true);   // e.g., "195%" -> 195
+    const spyPct = numFromText('#sp500-change', true); // e.g., "▲ 0.20%" -> 0.20 (sign handled by arrow? regex gets numeric; we’ll infer sign via text)
+    const spyText = (document.getElementById('sp500-change')?.textContent || '');
+    const spySignedPct = /▼/.test(spyText) ? -Math.abs(spyPct) : Math.abs(spyPct);
+
+    // Normalize -> [0..100], then weight. (Light-touch placeholders so the gauge isn’t blank.)
+    const wVix = 0.35, wYC = 0.25, wBuff = 0.30, wSP = 0.10;
+
+    let vixScore = 0;
+    if (Number.isFinite(useVix)) {
+      // 12 -> calm, 35 -> high
+      const t = clamp((useVix - 12) / (35 - 12), 0, 1);
+      vixScore = t * 100 * wVix;
+    }
+
+    let ycScore = 0;
+    if (Number.isFinite(spread)) {
+      // +1.0% -> 0 risk, 0% -> 50, -1.0% -> 100
+      let t;
+      if (spread >= 1) t = 0;
+      else if (spread <= -1) t = 1;
+      else t = (1 - spread) / 2; // linear across [-1, +1]
+      ycScore = clamp(t,0,1) * 100 * wYC;
+    }
+
+    let buffScore = 0;
+    if (Number.isFinite(buff)) {
+      // 120% fair -> 0, 220%+ -> 100
+      const t = clamp((buff - 120) / 100, 0, 1);
+      buffScore = t * 100 * wBuff;
+    }
+
+    let spScore = 0;
+    if (Number.isFinite(spySignedPct)) {
+      // -2% day -> 100, +2% -> 0 (cap)
+      const t = clamp(-spySignedPct / 2, 0, 1);
+      spScore = t * 100 * wSP;
+    }
+
+    const score = clamp(vixScore + ycScore + buffScore + spScore, 0, 100);
+
+    const detailBits = [];
+    if (Number.isFinite(useVix)) detailBits.push(`VIX ${useVix.toFixed(2)}`);
+    if (Number.isFinite(spread)) detailBits.push(`YC ${spread.toFixed(2)}%`);
+    if (Number.isFinite(buff))   detailBits.push(`Buffett ${buff.toFixed(0)}%`);
+    if (Number.isFinite(spySignedPct)) {
+      const arrow = spySignedPct >= 0 ? '+' : '';
+      detailBits.push(`S&P ${arrow}${spySignedPct.toFixed(2)}%`);
+    }
+    renderRisk(score, detailBits.join(' · '));
+  }
+  function safeRefreshRiskTemperature() {
+    // Try your own function first (if you have it)
+    try {
+      if (typeof refreshRiskTemperature === 'function') {
+        refreshRiskTemperature();
+      }
+    } catch (e) {
+      console.warn('refreshRiskTemperature() threw; using fallback:', e);
+    }
+    // If nothing rendered, fill in a sensible fallback so it’s never “--”
+    ensureRiskGauge();
+  }
+  // ------------------------------------------------------------------------------
 
   // ──────────────────────────────────────────────────────────────
   // Unified fetch + cache-fallback
@@ -363,8 +445,7 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // Guard against an empty {} for Estimated Buffett
+    // Guard against empty {} for Estimated Buffett
     if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
       results.estimatedBuffett = { error: 'No data' };
     }
@@ -394,11 +475,8 @@
       }
     });
 
-    // Recalc the aggregate gauge
-    if (typeof refreshRiskTemperature === 'function') {
-      refreshRiskTemperature();
-      fixRiskLabelFromDOM(); // ← ensure label tier is correct everywhere
-    }
+    // Recalc the aggregate gauge (safe)
+    safeRefreshRiskTemperature();
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -438,7 +516,6 @@
 
       setStatus(document.getElementById('vix-index-status'), 'LIVE');
 
-      // cache it
       cacheSet('vix-index', { price, change });
     } catch (e) {
       console.error('VIX Index error', e);
@@ -468,18 +545,16 @@
       }
     } finally {
       if (spinner) spinner.style.display = 'none';
-      if (typeof refreshRiskTemperature === 'function') {
-        refreshRiskTemperature();
-        fixRiskLabelFromDOM(); // ← ensure label tier is correct everywhere
-      }
+      // keep the gauge alive even if VIX fails
+      safeRefreshRiskTemperature();
     }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
-    refreshVIXIndex();               // ← existing
+    refreshVIXIndex();
     setInterval(refreshAllWidgets, 120000);
-    setInterval(refreshVIXIndex, 120000); // ← existing
+    setInterval(refreshVIXIndex, 120000);
   });
 </script>
 
