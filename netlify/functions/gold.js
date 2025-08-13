@@ -1,103 +1,85 @@
 // netlify/functions/gold.js
-// Robust Gold price: FRED PM fix → FRED AM fix → FMP XAUUSD
-// Env: FRED_KEY (required for FRED), FMP_KEY (optional fallback)
+// Source: FRED daily London gold fix (PM first, fallback to AM)
 
-const FRED_KEY = process.env.FRED_KEY;
-const FMP_KEY  = process.env.FMP_KEY;
-
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-  return res.json();
-}
-
-// Generic FRED gold getter for a series (PM or AM). Returns latest *valid* daily value.
-// We scan up to the last 365 observations to gracefully handle weekends/holidays/missing dots.
-async function getGoldFromFREDSeries(seriesId) {
-  if (!FRED_KEY) throw new Error('FRED_KEY missing');
-  const url =
-    `https://api.stlouisfed.org/fred/series/observations?` +
-    `series_id=${encodeURIComponent(seriesId)}&api_key=${encodeURIComponent(FRED_KEY)}` +
-    `&file_type=json&sort_order=desc&limit=365`;
-  const json = await fetchJson(url);
-
-  const rows = Array.isArray(json?.observations) ? json.observations : [];
-  const valid = rows
-    .filter(o => o && o.value !== '.' && !isNaN(Number(o.value)))
-    .map(o => ({ date: o.date, price: Number(o.value) }));
-
-  if (valid.length === 0) throw new Error(`${seriesId}: no numeric observations`);
-
-  const latest = valid[0];
-  const prev   = valid.find(v => v.date !== latest.date);
-  const changePercent = prev ? Number((((latest.price - prev.price) / prev.price) * 100).toFixed(2)) : null;
-
-  return {
-    price: latest.price,
-    changePercent,
-    source: `FRED ${seriesId}`,
-    timestamp: new Date().toISOString(),
-  };
-}
-
-// FMP fallback: XAUUSD (spot). Uses changesPercentage if available.
-async function getGoldFromFMP() {
-  if (!FMP_KEY) throw new Error('FMP_KEY missing');
-  const url = `https://financialmodelingprep.com/api/v3/quote/XAUUSD?apikey=${encodeURIComponent(FMP_KEY)}`;
-  const arr = await fetchJson(url);
-  if (!Array.isArray(arr) || arr.length === 0) throw new Error('FMP: empty quote payload');
-  const row = arr[0];
-  const price = Number(row.price);
-  if (!Number.isFinite(price)) throw new Error('FMP: bad price');
-  const changePercent =
-    row.changesPercentage == null ? null : Number(Number(row.changesPercentage).toFixed(2));
-  return {
-    price,
-    changePercent,
-    source: 'FMP XAUUSD',
-    timestamp: new Date().toISOString(),
-  };
-}
-
-// Helpers to format success/error HTTP responses
-function ok(bodyObj) {
-  return {
-    statusCode: 200,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    body: JSON.stringify(bodyObj),
-  };
-}
-function softError(tried) {
-  return ok({ error: 'All sources failed', _debug: { tried }, timestamp: new Date().toISOString() });
-}
-
-exports.handler = async () => {
-  const tried = [];
-
-  // 1) FRED PM fix
+export async function handler() {
   try {
-    const r = await getGoldFromFREDSeries('GOLDPMGBD228NLBM');
-    return ok(r);
-  } catch (e) {
-    tried.push({ src: 'FRED PM', ok: false, err: String(e.message || e) });
-  }
+    const FRED_KEY = process.env.FRED_KEY;
+    if (!FRED_KEY) throw new Error('FRED_KEY missing');
 
-  // 2) FRED AM fix
-  try {
-    const r = await getGoldFromFREDSeries('GOLDAMGBD228NLBM');
-    return ok(r);
-  } catch (e) {
-    tried.push({ src: 'FRED AM', ok: false, err: String(e.message || e) });
-  }
+    // fetch latest non-missing obs and previous one, compute % change
+    async function fetchFredSeries(series_id) {
+      const params = new URLSearchParams({
+        series_id,
+        api_key: FRED_KEY,
+        file_type: 'json',
+        sort_order: 'desc',
+        limit: '15',
+      });
+      const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`FRED HTTP ${res.status} (${series_id})`);
+      const json = await res.json();
+      const obs = Array.isArray(json.observations) ? json.observations : [];
 
-  // 3) FMP XAUUSD
-  try {
-    const r = await getGoldFromFMP();
-    return ok(r);
-  } catch (e) {
-    tried.push({ src: 'FMP XAUUSD', ok: false, err: String(e.message || e) });
-  }
+      const today = new Date().toISOString().slice(0, 10);
+      const valid = obs.filter(o => o.value !== '.' && o.date <= today);
+      if (valid.length === 0) throw new Error(`No valid observations (${series_id})`);
 
-  // All failed
-  return softError(tried);
-};
+      const latest = valid[0];
+      const prev = valid.find(o => o.date < latest.date);
+      const price = Number(latest.value);
+      if (!Number.isFinite(price)) throw new Error(`Bad value (${series_id})`);
+
+      let pct = null;
+      if (prev && prev.value !== '.' && Number(prev.value) > 0) {
+        pct = ((price - Number(prev.value)) / Number(prev.value)) * 100;
+      }
+      return {
+        price: Number(price.toFixed(2)),
+        pct: pct == null ? null : Number(pct.toFixed(2)),
+        series_id,
+      };
+    }
+
+    // Try PM fix first, then AM
+    let out;
+    const tried = [];
+    try {
+      out = await fetchFredSeries('GOLDPMGBD228NLBM'); // PM fix (USD/oz)
+      tried.push({ series: 'GOLDPMGBD228NLBM', ok: true });
+    } catch (e1) {
+      tried.push({ series: 'GOLDPMGBD228NLBM', ok: false, err: e1.message });
+      out = await fetchFredSeries('GOLDAMGBD228NLBM'); // AM fix (fallback)
+      tried.push({ series: 'GOLDAMGBD228NLBM', ok: true });
+    }
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, must-revalidate',
+      },
+      body: JSON.stringify({
+        price: out.price,
+        pct: out.pct,
+        source: `FRED ${out.series_id}`,
+        timestamp: new Date().toISOString(),
+      }),
+    };
+  } catch (err) {
+    console.error('gold.js error:', err);
+    return {
+      statusCode: 200, // keep 200 so the aggregator won’t throw; it will show "Error" if no cache
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, must-revalidate',
+      },
+      body: JSON.stringify({
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      }),
+    };
+  }
+}
