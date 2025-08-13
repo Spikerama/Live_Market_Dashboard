@@ -339,6 +339,14 @@
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
+    // VIXY
+    apply('vix', results.vixy, ({ price, pct }) => {
+      document.getElementById('vix').textContent = price.toFixed(2);
+      const el = document.getElementById('vix-change');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+    });
+
     // Lithium ETF
     apply('lithium', results.lit, ({ price, pct }) => {
       document.getElementById('lithium').textContent = price.toFixed(2);
@@ -359,6 +367,14 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
+    // Guard against empty {} for Estimated Buffett (kept if you still have it somewhere)
+    if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
+      results.estimatedBuffett = { error: 'No data' };
+    }
+
+    // Estimated Buffett (leave as-is if you still render it)
+    // apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => { ... });
+
     // True Buffett
     apply('buffett', results.buffett, ({ ratio }) => {
       document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
@@ -374,7 +390,6 @@
       }
     });
 
-    // Recalc the aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
     }
@@ -450,14 +465,171 @@
     }
   }
 
+  // ──────────────────────────────────────────────────────────────
+  // GOLD — fetch from /.netlify/functions/gold and render
+  // ──────────────────────────────────────────────────────────────
+  async function refreshGold() {
+    const spinner = document.getElementById('gold-spinner');
+    if (spinner) spinner.style.display = 'inline-block';
+
+    try {
+      const res = await fetch('/.netlify/functions/gold?bust=' + Date.now());
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+
+      const price = Number(json.price);
+      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
+        ? null : Number(json.changePercent);
+      if (!Number.isFinite(price)) throw new Error('Bad price from gold');
+
+      const valEl = document.getElementById('gold');
+      if (valEl) valEl.textContent = price.toFixed(2);
+
+      const changeEl = document.getElementById('gold-change');
+      if (changeEl) {
+        if (typeof change === 'number') {
+          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else {
+          changeEl.textContent = '';
+          changeEl.className = 'change';
+        }
+      }
+
+      const tsEl = document.getElementById('gold-updated');
+      if (tsEl) tsEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+      setStatus(document.getElementById('gold-status'), 'LIVE');
+
+      cacheSet('gold', { price, change });
+    } catch (e) {
+      console.error('Gold error', e);
+      const c = cacheGet('gold');
+      if (c?.data) {
+        const { price, change } = c.data;
+        const valEl = document.getElementById('gold');
+        if (valEl) valEl.textContent = Number(price).toFixed(2);
+
+        const changeEl = document.getElementById('gold-change');
+        if (changeEl && typeof change === 'number') {
+          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else if (changeEl) {
+          changeEl.textContent = '';
+          changeEl.className = 'change';
+        }
+
+        const tsEl = document.getElementById('gold-updated');
+        if (tsEl) tsEl.textContent = 'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
+
+        setStatus(document.getElementById('gold-status'), 'CACHED');
+      } else {
+        const valEl = document.getElementById('gold');
+        if (valEl) valEl.textContent = 'Error';
+        setStatus(document.getElementById('gold-status'), 'ERROR');
+      }
+    } finally {
+      if (spinner) spinner.style.display = 'none';
+      if (typeof refreshRiskTemperature === 'function') refreshRiskTemperature();
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // DXY / USD Broad Index — fetch from function and render
+  // (tries common function names; keep the one you actually have)
+  // ──────────────────────────────────────────────────────────────
+  async function refreshDXY() {
+    const spinner = document.getElementById('dxy-spinner');
+    if (spinner) spinner.style.display = 'inline-block';
+
+    const endpoints = [
+      '/.netlify/functions/dxyIndex',
+      '/.netlify/functions/dxy',
+      '/.netlify/functions/usdIndex'
+    ];
+
+    try {
+      let json = null, lastErr = null;
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep + '?bust=' + Date.now());
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const body = await res.json();
+          if (body && !body.error) { json = body; break; }
+          lastErr = new Error(body?.error || 'Unknown error');
+        } catch (e) { lastErr = e; }
+      }
+      if (!json) throw lastErr || new Error('No DXY endpoint responded');
+
+      const price = Number(json.price);
+      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
+        ? null : Number(json.changePercent);
+      if (!Number.isFinite(price)) throw new Error('Bad price from DXY');
+
+      const valEl = document.getElementById('dxy');
+      if (valEl) valEl.textContent = price.toFixed(2);
+
+      const changeEl = document.getElementById('dxy-change');
+      if (changeEl) {
+        if (typeof change === 'number') {
+          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else {
+          changeEl.textContent = '';
+          changeEl.className = 'change';
+        }
+      }
+
+      const tsEl = document.getElementById('dxy-updated');
+      if (tsEl) tsEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+      setStatus(document.getElementById('dxy-status'), 'LIVE');
+
+      cacheSet('dxy', { price, change });
+    } catch (e) {
+      console.error('DXY error', e);
+      const c = cacheGet('dxy');
+      if (c?.data) {
+        const { price, change } = c.data;
+        const valEl = document.getElementById('dxy');
+        if (valEl) valEl.textContent = Number(price).toFixed(2);
+
+        const changeEl = document.getElementById('dxy-change');
+        if (changeEl && typeof change === 'number') {
+          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
+          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
+        } else if (changeEl) {
+          changeEl.textContent = '';
+          changeEl.className = 'change';
+        }
+
+        const tsEl = document.getElementById('dxy-updated');
+        if (tsEl) tsEl.textContent = 'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
+
+        setStatus(document.getElementById('dxy-status'), 'CACHED');
+      } else {
+        const valEl = document.getElementById('dxy');
+        if (valEl) valEl.textContent = 'Error';
+        setStatus(document.getElementById('dxy-status'), 'ERROR');
+      }
+    } finally {
+      if (spinner) spinner.style.display = 'none';
+      if (typeof refreshRiskTemperature === 'function') refreshRiskTemperature();
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
     refreshVIXIndex();
+    refreshGold();
+    refreshDXY();
     setInterval(refreshAllWidgets, 120000);
     setInterval(refreshVIXIndex, 120000);
+    setInterval(refreshGold, 120000);
+    setInterval(refreshDXY, 120000);
   });
 </script>
-
 
 </body>
 </html>
