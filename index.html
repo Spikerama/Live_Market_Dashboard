@@ -252,346 +252,83 @@
     </div>
   </div>
 
-<script>
-  const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
+// netlify/functions/gold.js
+// Gold price via TwelveData XAU/USD (USD per troy ounce)
+// Returns: { price: number, changePercent: number|null, source, timestamp }
+// No node-fetch import needed on Netlify's Node 18+
 
-  function cacheSet(key, obj) {
-    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); }
-    catch {}
-  }
-  function cacheGet(key) {
-    try { return JSON.parse(localStorage.getItem(key)); }
-    catch { return null; }
-  }
+exports.handler = async function () {
+  try {
+    const TWELVE_KEY = process.env.TWELVE_KEY;
+    if (!TWELVE_KEY) {
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'TWELVE_KEY not set in environment' })
+      };
+    }
 
-  function setStatus(el, type) {
-    if (!el) return;
-    el.classList.remove('badge-live', 'badge-cached', 'badge-error');
-    el.classList.add('badge');
-    if (type === 'LIVE')       { el.textContent = 'LIVE'; el.classList.add('badge-live'); }
-    else if (type === 'CACHED'){ el.textContent = 'CACHED'; el.classList.add('badge-cached'); }
-    else if (type === 'ERROR') { el.textContent = 'ERROR'; el.classList.add('badge-error'); }
-    else                       { el.textContent = type; }
-  }
+    const symbol = encodeURIComponent('XAU/USD');
+    const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${TWELVE_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from TwelveData`);
+    }
+    const j = await res.json();
 
-  function interpolateColor(from, to, t) {
-    const f = hex => parseInt(hex.replace('#',''),16);
-    const [r1,g1,b1] = [(f(from)>>16)&255, (f(from)>>8)&255, f(from)&255];
-    const [r2,g2,b2] = [(f(to)>>16)&255,   (f(to)>>8)&255,   f(to)&255];
-    const rn = Math.round(r1 + (r2 - r1)*t);
-    const gn = Math.round(g1 + (g2 - g1)*t);
-    const bn = Math.round(b1 + (b2 - b1)*t);
-    return `rgb(${rn},${gn},${bn})`;
-  }
-  function riskColor(score) {
-    return score <= 50
-      ? interpolateColor('#28c17d','#ffcd3c', score/50)
-      : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
-  }
+    if (j.status === 'error') {
+      // Typical: daily credit limit exceeded -> let frontend cache-fallback handle it
+      throw new Error(j.message || 'TwelveData returned error');
+    }
 
-  // ──────────────────────────────────────────────────────────────
-  // Risk Temperature (reads DOM; tolerant of missing data)
-  // ──────────────────────────────────────────────────────────────
-  function refreshRiskTemperature() {
-    const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
-    const numFrom = (id) => {
-      const el = document.getElementById(id);
-      if (!el) return null;
-      const t = (el.textContent || '').replace(/[^0-9.+-]/g,'');
-      const v = parseFloat(t);
-      return Number.isFinite(v) ? v : null;
+    // TwelveData may provide either price or close (for FX they expose price)
+    const priceRaw = j.price ?? j.close;
+    const prevRaw  = j.previous_close ?? null;
+
+    const price = Number(priceRaw);
+    if (!Number.isFinite(price)) {
+      throw new Error('Bad price from TwelveData for XAU/USD');
+    }
+
+    let changePercent = null;
+    if (prevRaw != null && Number.isFinite(Number(prevRaw)) && Number(prevRaw) !== 0) {
+      changePercent = ((price - Number(prevRaw)) / Number(prevRaw)) * 100;
+    } else if (j.percent_change != null && !isNaN(Number(j.percent_change))) {
+      // Some symbols include percent_change directly
+      changePercent = Number(j.percent_change);
+    }
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, must-revalidate'
+      },
+      body: JSON.stringify({
+        price: Number(price.toFixed(2)),
+        changePercent: changePercent == null ? null : Number(changePercent.toFixed(2)),
+        source: 'TwelveData XAU/USD',
+        timestamp: new Date().toISOString()
+      })
     };
-    const pctFrom = (id) => {
-      const el = document.getElementById(id);
-      if (!el) return null;
-      const m = (el.textContent || '').match(/-?\d+(\.\d+)?/);
-      return m ? parseFloat(m[0]) : null;
+  } catch (err) {
+    console.error('gold.js error:', err);
+    // Return 200 with error payload so the frontend can fall back to cache gracefully
+    return {
+      statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, must-revalidate'
+      },
+      body: JSON.stringify({
+        error: String(err.message || err),
+        timestamp: new Date().toISOString()
+      })
     };
-
-    const buffettRatio = numFrom('buffett');      // e.g. "195.2%" -> 195.2
-    const vixIndexVal  = numFrom('vix-index');    // e.g. "16.57"
-    const vixyVal      = numFrom('vix');          // fallback if needed
-    const spread       = numFrom('yield');        // "0.51%" -> 0.51
-    const spyMovePct   = pctFrom('sp500-change'); // "▲ 0.20%" -> 0.20
-    const vixVal       = Number.isFinite(vixIndexVal) ? vixIndexVal :
-                         (Number.isFinite(vixyVal) ? vixyVal : null);
-
-    // VIX risk: 12→~5, 20→60, 30→90, 40+→100
-    const vixRisk = vixVal==null ? null :
-        (vixVal<=12 ? 5 :
-         vixVal<=20 ? 5 + (vixVal-12)*(55/8) :
-         vixVal<=30 ? 60 + (vixVal-20)*3 :
-         clamp(90 + (vixVal-30)*1.0, 90, 100));
-
-    // Yield curve risk (spread in %). Positive safer, negative riskier.
-    let ycRisk = null;
-    if (spread!=null) {
-      if (spread >= 1) ycRisk = 5;
-      else if (spread >= 0) ycRisk = 5 + (1 - spread)*25;  // 0..1 ⇒ 30..5
-      else {
-        const d = Math.min(1, Math.abs(spread));
-        ycRisk = 35 + d*65;                                // 0→35 at 0, -1%→100
-      }
-    }
-
-    // Buffett ratio risk: map 140%→0 to 220%→100
-    let buffRisk = null;
-    if (Number.isFinite(buffettRatio)) {
-      const min=140, max=220;
-      buffRisk = clamp(((buffettRatio - min)/(max - min))*100, 0, 100);
-    }
-
-    // S&P intraday move magnitude
-    let spyRisk = null;
-    if (Number.isFinite(spyMovePct)) {
-      spyRisk = clamp((Math.abs(spyMovePct)/4)*100, 0, 100); // 0%→0, 2%→50, 4%→100
-    }
-
-    const parts = [];
-    if (vixRisk  != null) parts.push({ w: 0.40, s: vixRisk  });
-    if (ycRisk   != null) parts.push({ w: 0.25, s: ycRisk   });
-    if (buffRisk != null) parts.push({ w: 0.25, s: buffRisk });
-    if (spyRisk  != null) parts.push({ w: 0.10, s: spyRisk  });
-
-    const scoreEl   = document.getElementById('risk-temp-score');
-    const statusEl  = document.getElementById('risk-temp-status');
-    const needleEl  = document.getElementById('risk-temp-needle');
-    const detailsEl = document.getElementById('risk-temp-details');
-
-    if (!parts.length) {
-      if (scoreEl)  scoreEl.textContent  = '--%';
-      if (statusEl) statusEl.textContent = '--';
-      if (detailsEl) detailsEl.textContent = 'Waiting for data…';
-      return;
-    }
-
-    const wsum  = parts.reduce((a,p)=>a+p.w,0);
-    const score = parts.reduce((a,p)=>a + (p.w/wsum)*p.s, 0);
-
-    let band = 'Calm';
-    if (score >= 70) band = 'Alert';
-    else if (score >= 45) band = 'Elevated';
-    else if (score >= 20) band = 'Watch';
-
-    if (scoreEl)  scoreEl.textContent  = `${score.toFixed(0)}%`;
-    if (statusEl) statusEl.textContent = band;
-    if (needleEl) needleEl.style.left  = `${Math.max(0,Math.min(100,score))}%`;
-
-    const bits = [];
-    if (vixVal       != null) bits.push(`VIX ${vixVal.toFixed(2)}`);
-    if (spread       != null) bits.push(`YC ${spread.toFixed(2)}%`);
-    if (buffettRatio != null) bits.push(`Buffett ${buffettRatio.toFixed(0)}%`);
-    if (spyMovePct   != null) bits.push(`S&P ${spyMovePct>=0?'+':''}${spyMovePct.toFixed(2)}%`);
-    if (detailsEl) detailsEl.textContent = bits.join(' · ');
   }
-
-  // ──────────────────────────────────────────────────────────────
-  // Unified fetch + cache-fallback
-  // ──────────────────────────────────────────────────────────────
-  async function refreshAllWidgets() {
-    let results = {};
-    try {
-      results = await fetch('/.netlify/functions/fetchAllData').then(r => r.json());
-    } catch (e) {
-      console.error('fetchAllData failed', e);
-    }
-
-    function apply(key, live, renderer) {
-      const cache = cacheGet(key);
-      if (live?.error) {
-        if (cache?.data) {
-          renderer(cache.data);
-          setStatus(document.getElementById(key + '-status'), 'CACHED');
-          document.getElementById(key + '-updated').textContent =
-            'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
-        } else {
-          document.getElementById(key).textContent = '--';
-          setStatus(document.getElementById(key + '-status'), 'ERROR');
-        }
-      } else if (live) {
-        renderer(live);
-        setStatus(document.getElementById(key + '-status'), 'LIVE');
-        cacheSet(key, live);
-        document.getElementById(key + '-updated').textContent =
-          'Updated: ' + new Date().toLocaleTimeString();
-      } else {
-        document.getElementById(key).textContent = '--';
-      }
-    }
-
-    // SPY
-    apply('sp500', results.spy, ({ price, pct }) => {
-      document.getElementById('sp500').textContent = price.toFixed(2);
-      const el = document.getElementById('sp500-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // TSLA
-    apply('tsla', results.tsla, ({ price, pct }) => {
-      document.getElementById('tsla').textContent = price.toFixed(2);
-      const el = document.getElementById('tsla-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // VIXY
-    apply('vix', results.vixy, ({ price, pct }) => {
-      document.getElementById('vix').textContent = price.toFixed(2);
-      const el = document.getElementById('vix-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // Lithium ETF
-    apply('lithium', results.lit, ({ price, pct }) => {
-      document.getElementById('lithium').textContent = price.toFixed(2);
-      const el = document.getElementById('lithium-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // GOLD  ← added back
-    apply('gold', results.gold, ({ price, pct }) => {
-      document.getElementById('gold').textContent = price.toFixed(2);
-      const el = document.getElementById('gold-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // DXY   ← added back
-    apply('dxy', results.dxy, ({ price, pct }) => {
-      document.getElementById('dxy').textContent = price.toFixed(2);
-      const el = document.getElementById('dxy-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // Yield Curve
-    if (results.yieldCurve?.spread != null) {
-      const s = results.yieldCurve.spread, inv = results.yieldCurve.inverted;
-      document.getElementById('yield').textContent = `${s.toFixed(2)}%`;
-      const el = document.getElementById('yield-change');
-      el.textContent = `${s >= 0 ? '▲' : '▼'} ${inv ? 'Inverted' : 'Normal'}`;
-      el.className = 'change ' + (s >= 0 ? 'up' : 'down');
-      setStatus(document.getElementById('yield-status'), inv ? 'INVERTED' : 'NORMAL');
-      document.getElementById('yield-updated').textContent =
-        'Updated: ' + new Date().toLocaleTimeString();
-    }
-
-    // Guard against empty Estimated Buffett
-    if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
-      results.estimatedBuffett = { error: 'No data' };
-    }
-
-    // Estimated Buffett
-    apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
-      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
-      const el = document.getElementById('estimated-buffett-change');
-      el.textContent = overvalued
-        ? '▲ Overvalued'
-        : (ratio >= 2.5 ? '▲ Caution' : '▼ Normal');
-      el.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
-    });
-
-    // True Buffett
-    apply('buffett', results.buffett, ({ ratio }) => {
-      document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
-      const statusEl = document.getElementById('buffett-status');
-      if (ratio >= 3.0) {
-        statusEl.textContent = 'ALERT';
-        statusEl.classList.add('badge-error');
-        statusEl.classList.remove('badge-live');
-      } else {
-        statusEl.textContent = 'OK';
-        statusEl.classList.add('badge-live');
-        statusEl.classList.remove('badge-error');
-      }
-    });
-
-    // Recalc the aggregate gauge
-    if (typeof refreshRiskTemperature === 'function') {
-      refreshRiskTemperature();
-    }
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // VIX Index (^VIX) — fetch direct from function and render
-  // ──────────────────────────────────────────────────────────────
-  async function refreshVIXIndex() {
-    const spinner = document.getElementById('vix-index-spinner');
-    if (spinner) spinner.style.display = 'inline-block';
-
-    try {
-      const res = await fetch('/.netlify/functions/vixIndex?bust=' + Date.now());
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-
-      const price = Number(json.price);
-      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
-        ? null : Number(json.changePercent);
-      if (!Number.isFinite(price)) throw new Error('Bad price from vixIndex');
-
-      const valEl = document.getElementById('vix-index');
-      if (valEl) valEl.textContent = price.toFixed(2);
-
-      const changeEl = document.getElementById('vix-index-change');
-      if (changeEl) {
-        if (typeof change === 'number') {
-          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
-          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
-        } else {
-          changeEl.textContent = '';
-          changeEl.className = 'change';
-        }
-      }
-
-      const tsEl = document.getElementById('vix-index-updated');
-      if (tsEl) tsEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
-
-      setStatus(document.getElementById('vix-index-status'), 'LIVE');
-
-      cacheSet('vix-index', { price, change });
-    } catch (e) {
-      console.error('VIX Index error', e);
-      const c = cacheGet('vix-index');
-      if (c?.data) {
-        const { price, change } = c.data;
-        const valEl = document.getElementById('vix-index');
-        if (valEl) valEl.textContent = Number(price).toFixed(2);
-
-        const changeEl = document.getElementById('vix-index-change');
-        if (changeEl && typeof change === 'number') {
-          changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
-          changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
-        } else if (changeEl) {
-          changeEl.textContent = '';
-          changeEl.className = 'change';
-        }
-
-        const tsEl = document.getElementById('vix-index-updated');
-        if (tsEl) tsEl.textContent = 'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
-
-        setStatus(document.getElementById('vix-index-status'), 'CACHED');
-      } else {
-        const valEl = document.getElementById('vix-index');
-        if (valEl) valEl.textContent = 'Error';
-        setStatus(document.getElementById('vix-index-status'), 'ERROR');
-      }
-    } finally {
-      if (spinner) spinner.style.display = 'none';
-      if (typeof refreshRiskTemperature === 'function') refreshRiskTemperature();
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    refreshAllWidgets();
-    refreshVIXIndex();
-    setInterval(refreshAllWidgets, 120000);
-    setInterval(refreshVIXIndex, 120000);
-  });
-</script>
+};
 
 </body>
 </html>
