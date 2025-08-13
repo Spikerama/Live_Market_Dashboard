@@ -290,102 +290,6 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Risk Temperature (reads DOM; tolerant of missing data)
-  // ──────────────────────────────────────────────────────────────
-  function refreshRiskTemperature() {
-    const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
-    const numFrom = (id) => {
-      const el = document.getElementById(id);
-      if (!el) return null;
-      const t = (el.textContent || '').replace(/[^0-9.+-]/g,'');
-      const v = parseFloat(t);
-      return Number.isFinite(v) ? v : null;
-    };
-    const pctFrom = (id) => {
-      const el = document.getElementById(id);
-      if (!el) return null;
-      const m = (el.textContent || '').match(/-?\d+(\.\d+)?/);
-      return m ? parseFloat(m[0]) : null;
-    };
-
-    const buffettRatio = numFrom('buffett');      // e.g. "195.2%" -> 195.2
-    const vixIndexVal  = numFrom('vix-index');    // e.g. "16.57"
-    const vixyVal      = numFrom('vix');          // fallback if needed
-    const spread       = numFrom('yield');        // "0.51%" -> 0.51
-    const spyMovePct   = pctFrom('sp500-change'); // "▲ 0.20%" -> 0.20
-    const vixVal       = Number.isFinite(vixIndexVal) ? vixIndexVal :
-                         (Number.isFinite(vixyVal) ? vixyVal : null);
-
-    // VIX risk: 12→~5, 20→60, 30→90, 40+→100
-    const vixRisk = vixVal==null ? null :
-        (vixVal<=12 ? 5 :
-         vixVal<=20 ? 5 + (vixVal-12)*(55/8) :
-         vixVal<=30 ? 60 + (vixVal-20)*3 :
-         clamp(90 + (vixVal-30)*1.0, 90, 100));
-
-    // Yield curve risk (spread in %). Positive safer, negative riskier.
-    let ycRisk = null;
-    if (spread!=null) {
-      if (spread >= 1) ycRisk = 5;
-      else if (spread >= 0) ycRisk = 5 + (1 - spread)*25;  // 0..1 ⇒ 30..5
-      else {
-        const d = Math.min(1, Math.abs(spread));
-        ycRisk = 35 + d*65;                                // 0→35 at 0, -1%→100
-      }
-    }
-
-    // Buffett ratio risk: map 140%→0 to 220%→100
-    let buffRisk = null;
-    if (Number.isFinite(buffettRatio)) {
-      const min=140, max=220;
-      buffRisk = clamp(((buffettRatio - min)/(max - min))*100, 0, 100);
-    }
-
-    // S&P intraday move magnitude
-    let spyRisk = null;
-    if (Number.isFinite(spyMovePct)) {
-      spyRisk = clamp((Math.abs(spyMovePct)/4)*100, 0, 100); // 0%→0, 2%→50, 4%→100
-    }
-
-    const parts = [];
-    if (vixRisk  != null) parts.push({ w: 0.40, s: vixRisk  });
-    if (ycRisk   != null) parts.push({ w: 0.25, s: ycRisk   });
-    if (buffRisk != null) parts.push({ w: 0.25, s: buffRisk });
-    if (spyRisk  != null) parts.push({ w: 0.10, s: spyRisk  });
-
-    const scoreEl   = document.getElementById('risk-temp-score');
-    const statusEl  = document.getElementById('risk-temp-status');
-    const needleEl  = document.getElementById('risk-temp-needle');
-    const detailsEl = document.getElementById('risk-temp-details');
-
-    if (!parts.length) {
-      if (scoreEl)  scoreEl.textContent  = '--%';
-      if (statusEl) statusEl.textContent = '--';
-      if (detailsEl) detailsEl.textContent = 'Waiting for data…';
-      return;
-    }
-
-    const wsum  = parts.reduce((a,p)=>a+p.w,0);
-    const score = parts.reduce((a,p)=>a + (p.w/wsum)*p.s, 0);
-
-    let band = 'Calm';
-    if (score >= 70) band = 'Alert';
-    else if (score >= 45) band = 'Elevated';
-    else if (score >= 20) band = 'Watch';
-
-    if (scoreEl)  scoreEl.textContent  = `${score.toFixed(0)}%`;
-    if (statusEl) statusEl.textContent = band;
-    if (needleEl) needleEl.style.left  = `${Math.max(0,Math.min(100,score))}%`;
-
-    const bits = [];
-    if (vixVal       != null) bits.push(`VIX ${vixVal.toFixed(2)}`);
-    if (spread       != null) bits.push(`YC ${spread.toFixed(2)}%`);
-    if (buffettRatio != null) bits.push(`Buffett ${buffettRatio.toFixed(0)}%`);
-    if (spyMovePct   != null) bits.push(`S&P ${spyMovePct>=0?'+':''}${spyMovePct.toFixed(2)}%`);
-    if (detailsEl) detailsEl.textContent = bits.join(' · ');
-  }
-
-  // ──────────────────────────────────────────────────────────────
   // Unified fetch + cache-fallback
   // ──────────────────────────────────────────────────────────────
   async function refreshAllWidgets() {
@@ -451,20 +355,47 @@
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
-    // GOLD  ← added back
-    apply('gold', results.gold, ({ price, pct }) => {
-      document.getElementById('gold').textContent = price.toFixed(2);
+    // GOLD  ← added
+    apply('gold', results.gold, ({ price, changePercent, pct }) => {
+      const val = (typeof price === 'number') ? price : null;
+      const ch  = (typeof changePercent === 'number') ? changePercent
+                : (typeof pct === 'number') ? pct : null;
+
+      if (val != null) {
+        document.getElementById('gold').textContent = val.toFixed(2);
+      }
       const el = document.getElementById('gold-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      if (el) {
+        if (typeof ch === 'number') {
+          el.textContent = `${ch >= 0 ? '▲' : '▼'} ${Math.abs(ch).toFixed(2)}%`;
+          el.className = 'change ' + (ch >= 0 ? 'up' : 'down');
+        } else {
+          el.textContent = '';
+          el.className = 'change';
+        }
+      }
     });
 
-    // DXY   ← added back
-    apply('dxy', results.dxy, ({ price, pct }) => {
-      document.getElementById('dxy').textContent = price.toFixed(2);
+    // DXY  ← added
+    apply('dxy', results.dxy, ({ value, price, changePercent, pct }) => {
+      const val = (typeof value === 'number') ? value
+                : (typeof price === 'number') ? price : null;
+      const ch  = (typeof changePercent === 'number') ? changePercent
+                : (typeof pct === 'number') ? pct : null;
+
+      if (val != null) {
+        document.getElementById('dxy').textContent = val.toFixed(2);
+      }
       const el = document.getElementById('dxy-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      if (el) {
+        if (typeof ch === 'number') {
+          el.textContent = `${ch >= 0 ? '▲' : '▼'} ${Math.abs(ch).toFixed(2)}%`;
+          el.className = 'change ' + (ch >= 0 ? 'up' : 'down');
+        } else {
+          el.textContent = '';
+          el.className = 'change';
+        }
+      }
     });
 
     // Yield Curve
@@ -479,7 +410,8 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // Guard against empty Estimated Buffett
+    // ──────────────────────────────────────────────────────────────
+    // Guard against an empty {} for Estimated Buffett
     if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
       results.estimatedBuffett = { error: 'No data' };
     }
@@ -552,6 +484,7 @@
 
       setStatus(document.getElementById('vix-index-status'), 'LIVE');
 
+      // cache it
       cacheSet('vix-index', { price, change });
     } catch (e) {
       console.error('VIX Index error', e);
@@ -587,12 +520,11 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     refreshAllWidgets();
-    refreshVIXIndex();
+    refreshVIXIndex();               // ← keep
     setInterval(refreshAllWidgets, 120000);
     setInterval(refreshVIXIndex, 120000);
   });
 </script>
-
 
 </body>
 </html>
