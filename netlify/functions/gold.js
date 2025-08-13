@@ -1,68 +1,84 @@
 // netlify/functions/gold.js
-// Gold price via FRED. Tries PM fix first, then AM.
-// Returns 200 with either { price, pct, source, timestamp } or { error, _debug, timestamp }
+// Fetch daily London gold price from FRED (PM first, then AM).
+// Returns latest price (USD/oz) and 1-day percent change.
+//
+// No node-fetch import needed on Netlify Node 18+ (global fetch available).
 
-export async function handler() {
+function fredObsUrl(seriesId, apiKey, limit = 5) {
+  const p = new URLSearchParams({
+    series_id: seriesId,
+    api_key: apiKey,
+    file_type: 'json',
+    sort_order: 'desc',
+    limit: String(limit),
+  });
+  // We don't force realtime_*; default latest vintage is fine for daily series.
+  return `https://api.stlouisfed.org/fred/series/observations?${p.toString()}`;
+}
+
+async function getFredLatestPair(seriesId, apiKey) {
+  const url = fredObsUrl(seriesId, apiKey, 10);
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`FRED HTTP ${res.status} (${seriesId}) - ${text}`);
+  }
+  const json = await res.json();
+  if (!json || !Array.isArray(json.observations)) {
+    throw new Error(`FRED payload malformed for ${seriesId}`);
+  }
+
+  // Filter out '.' values and keep numbers only
+  const vals = json.observations
+    .map(o => ({ date: o.date, v: o.value === '.' ? null : Number(o.value) }))
+    .filter(x => Number.isFinite(x.v));
+
+  if (vals.length === 0) {
+    throw new Error(`No numeric observations for ${seriesId}`);
+  }
+
+  // They’re sorted desc, so vals[0] is latest. Find latest and prior.
+  const latest = vals[0].v;
+  const prior = vals.find((_, i) => i > 0)?.v ?? null;
+
+  return { latest, prior };
+}
+
+exports.handler = async function () {
   try {
     const FRED_KEY = process.env.FRED_KEY;
-    if (!FRED_KEY) throw new Error('FRED_KEY missing');
-
-    async function fetchFredSeriesLatest(series_id) {
-      // Keep params simple but explicit; some FRED series 400 with odd defaults
-      const params = new URLSearchParams({
-        series_id,
-        api_key: FRED_KEY,
-        file_type: 'json',
-        observation_start: '1990-01-01', // trim history; avoids some edge cases
-        sort_order: 'desc',
-        limit: '3650', // up to ~10 years of daily obs
-      });
-
-      const url = `https://api.stlouisfed.org/fred/series/observations?${params}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`FRED HTTP ${res.status} (${series_id}) ${text ? '- ' + text.slice(0,200) : ''}`);
-      }
-      const json = await res.json();
-      const obs = Array.isArray(json?.observations) ? json.observations : [];
-      if (!obs.length) throw new Error(`No observations (${series_id})`);
-
-      // Find latest non-missing value
-      const latest = obs.find(o => o && o.value !== '.');
-      if (!latest) throw new Error(`No valid (non-dot) observation (${series_id})`);
-
-      // For % change, find the *next* valid (since we sorted desc, next is prior date)
-      const idx = obs.indexOf(latest);
-      const prev = obs.slice(idx + 1).find(o => o && o.value !== '.');
-
-      const price = Number(latest.value);
-      if (!Number.isFinite(price)) throw new Error(`Bad value (${series_id})`);
-
-      let pct = null;
-      if (prev && Number(prev.value) > 0) {
-        pct = ((price - Number(prev.value)) / Number(prev.value)) * 100;
-      }
-
+    if (!FRED_KEY) {
       return {
-        price: Number(price.toFixed(2)),
-        pct: pct == null ? null : Number(pct.toFixed(2)),
-        series_id,
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'FRED_KEY not set' }),
       };
     }
 
+    let source = '';
+    let latest = null;
+    let prior = null;
     const tried = [];
-    let out = null;
 
     // Try PM fix first
     try {
-      out = await fetchFredSeriesLatest('GOLDPMGBD228NLBM');
-      tried.push({ series: 'GOLDPMGBD228NLBM', ok: true });
+      const p = await getFredLatestPair('GOLDPMGBD228NLBM', FRED_KEY);
+      latest = p.latest; prior = p.prior; source = 'FRED GOLDPMGBD228NLBM (PM fix)';
     } catch (e1) {
-      tried.push({ series: 'GOLDPMGBD228NLBM', ok: false, err: e1.message });
+      tried.push({ src: 'PM', ok: false, err: String(e1.message || e1) });
       // Fallback to AM fix
-      out = await fetchFredSeriesLatest('GOLDAMGBD228NLBM');
-      tried.push({ series: 'GOLDAMGBD228NLBM', ok: true });
+      const p = await getFredLatestPair('GOLDAMGBD228NLBM', FRED_KEY);
+      latest = p.latest; prior = p.prior; source = 'FRED GOLDAMGBD228NLBM (AM fix)';
+    }
+
+    const price = Number(latest);
+    if (!Number.isFinite(price)) {
+      throw new Error('Latest gold price is not finite');
+    }
+
+    let changePercent = null;
+    if (Number.isFinite(prior) && prior !== 0) {
+      changePercent = ((price - prior) / prior) * 100;
     }
 
     return {
@@ -73,26 +89,27 @@ export async function handler() {
         'Cache-Control': 'no-store, must-revalidate',
       },
       body: JSON.stringify({
-        price: out.price,
-        pct: out.pct,
-        source: `FRED ${out.series_id}`,
+        price: Number(price.toFixed(2)),
+        changePercent: changePercent == null ? null : Number(changePercent.toFixed(2)),
+        source,
         timestamp: new Date().toISOString(),
+        _debug: tried.length ? { tried } : undefined,
       }),
     };
   } catch (err) {
-    console.error('gold.js error:', err);
+    console.error('gold.js handler error:', err);
     return {
-      statusCode: 200, // keep aggregator happy
+      statusCode: 200, // return 200 with an error payload so frontend can cache-fallback
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-store, must-revalidate',
       },
       body: JSON.stringify({
-        error: err.message,
+        error: String(err.message || err),
         _debug: { where: 'gold.js handler' },
         timestamp: new Date().toISOString(),
       }),
     };
   }
-}
+};
