@@ -1,57 +1,67 @@
 // netlify/functions/gold.js
-// Gold price from FRED: try PM fix first, fallback to AM.
-// Returns: { price, pct|null, source, timestamp } (HTTP 200 even on errors)
+// Gold price via FRED. Tries PM fix first, then AM.
+// Returns 200 with either { price, pct, source, timestamp } or { error, _debug, timestamp }
 
 export async function handler() {
   try {
     const FRED_KEY = process.env.FRED_KEY;
     if (!FRED_KEY) throw new Error('FRED_KEY missing');
 
-    async function getFredGold(series_id) {
-      // Minimal params: some FRED series 400 out when you add filters.
-      const url =
-        `https://api.stlouisfed.org/fred/series/observations?` +
-        `series_id=${series_id}&api_key=${FRED_KEY}&file_type=json`;
+    async function fetchFredSeriesLatest(series_id) {
+      // Keep params simple but explicit; some FRED series 400 with odd defaults
+      const params = new URLSearchParams({
+        series_id,
+        api_key: FRED_KEY,
+        file_type: 'json',
+        observation_start: '1990-01-01', // trim history; avoids some edge cases
+        sort_order: 'desc',
+        limit: '3650', // up to ~10 years of daily obs
+      });
 
+      const url = `https://api.stlouisfed.org/fred/series/observations?${params}`;
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`FRED HTTP ${res.status} (${series_id})`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`FRED HTTP ${res.status} (${series_id}) ${text ? '- ' + text.slice(0,200) : ''}`);
+      }
       const json = await res.json();
+      const obs = Array.isArray(json?.observations) ? json.observations : [];
+      if (!obs.length) throw new Error(`No observations (${series_id})`);
 
-      const all = Array.isArray(json?.observations) ? json.observations : [];
-      const valid = all.filter(o => o.value !== '.');
-      if (!valid.length) throw new Error(`No observations (${series_id})`);
+      // Find latest non-missing value
+      const latest = obs.find(o => o && o.value !== '.');
+      if (!latest) throw new Error(`No valid (non-dot) observation (${series_id})`);
 
-      // Latest by date
-      valid.sort((a, b) => (a.date < b.date ? 1 : -1)); // desc
-      const latest = valid[0];
-      const prev   = valid[1];
+      // For % change, find the *next* valid (since we sorted desc, next is prior date)
+      const idx = obs.indexOf(latest);
+      const prev = obs.slice(idx + 1).find(o => o && o.value !== '.');
 
       const price = Number(latest.value);
       if (!Number.isFinite(price)) throw new Error(`Bad value (${series_id})`);
 
       let pct = null;
-      if (prev && prev.value !== '.' && Number(prev.value) > 0) {
+      if (prev && Number(prev.value) > 0) {
         pct = ((price - Number(prev.value)) / Number(prev.value)) * 100;
       }
 
       return {
         price: Number(price.toFixed(2)),
         pct: pct == null ? null : Number(pct.toFixed(2)),
-        series_id
+        series_id,
       };
     }
 
-    let out;
     const tried = [];
+    let out = null;
 
+    // Try PM fix first
     try {
-      // PM fix first (more common reference)
-      out = await getFredGold('GOLDPMGBD228NLBM');
+      out = await fetchFredSeriesLatest('GOLDPMGBD228NLBM');
       tried.push({ series: 'GOLDPMGBD228NLBM', ok: true });
     } catch (e1) {
       tried.push({ series: 'GOLDPMGBD228NLBM', ok: false, err: e1.message });
       // Fallback to AM fix
-      out = await getFredGold('GOLDAMGBD228NLBM');
+      out = await fetchFredSeriesLatest('GOLDAMGBD228NLBM');
       tried.push({ series: 'GOLDAMGBD228NLBM', ok: true });
     }
 
@@ -71,9 +81,8 @@ export async function handler() {
     };
   } catch (err) {
     console.error('gold.js error:', err);
-    // Keep 200 so the aggregator can show “Error” or fall back to cache gracefully
     return {
-      statusCode: 200,
+      statusCode: 200, // keep aggregator happy
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -81,6 +90,7 @@ export async function handler() {
       },
       body: JSON.stringify({
         error: err.message,
+        _debug: { where: 'gold.js handler' },
         timestamp: new Date().toISOString(),
       }),
     };
