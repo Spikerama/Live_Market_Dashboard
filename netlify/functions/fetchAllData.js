@@ -92,7 +92,16 @@ export async function handler(event) {
     }
   }
 
-  // 5) Yield Curve Spread
+  // 5) Gold (from Netlify function /gold)
+  try {
+    const res = await fetch(`${base}/.netlify/functions/gold?bust=${bust}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    results.gold = await res.json();
+  } catch (err) {
+    results.gold = { error: err.message };
+  }
+
+  // 6) Yield Curve Spread
   try {
     const res = await fetch(`${base}/.netlify/functions/yieldSpread?bust=${bust}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -101,7 +110,7 @@ export async function handler(event) {
     results.yieldCurve = { error: err.message };
   }
 
-  // 6) Estimated Buffett
+  // 7) Estimated Buffett
   try {
     const res = await fetch(`${base}/.netlify/functions/estimatedBuffett?bust=${bust}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -110,7 +119,7 @@ export async function handler(event) {
     results.estimatedBuffett = { error: err.message };
   }
 
-  // 7) True Buffett
+  // 8) True Buffett
   try {
     const res = await fetch(`${base}/.netlify/functions/buffett?bust=${bust}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
