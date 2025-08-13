@@ -451,6 +451,22 @@
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
+    // GOLD  ← added back
+    apply('gold', results.gold, ({ price, pct }) => {
+      document.getElementById('gold').textContent = price.toFixed(2);
+      const el = document.getElementById('gold-change');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+    });
+
+    // DXY   ← added back
+    apply('dxy', results.dxy, ({ price, pct }) => {
+      document.getElementById('dxy').textContent = price.toFixed(2);
+      const el = document.getElementById('dxy-change');
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+    });
+
     // Yield Curve
     if (results.yieldCurve?.spread != null) {
       const s = results.yieldCurve.spread, inv = results.yieldCurve.inverted;
