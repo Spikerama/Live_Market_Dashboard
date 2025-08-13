@@ -1,39 +1,30 @@
 // netlify/functions/gold.js
 // Gold price from FRED: try PM fix first, fallback to AM.
-// Returns: { price: number, pct: number|null, source: string, timestamp: string }
+// Returns: { price, pct|null, source, timestamp } (HTTP 200 even on errors)
 
 export async function handler() {
   try {
     const FRED_KEY = process.env.FRED_KEY;
     if (!FRED_KEY) throw new Error('FRED_KEY missing');
 
-    // Build an observation_start ~180 days ago to avoid huge payloads that can trigger 400s.
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 180);
-    const obsStart = startDate.toISOString().slice(0, 10); // YYYY-MM-DD
+    async function getFredGold(series_id) {
+      // Minimal params: some FRED series 400 out when you add filters.
+      const url =
+        `https://api.stlouisfed.org/fred/series/observations?` +
+        `series_id=${series_id}&api_key=${FRED_KEY}&file_type=json`;
 
-    async function fetchFredSeries(series_id) {
-      const params = new URLSearchParams({
-        series_id,
-        api_key: FRED_KEY,
-        file_type: 'json',
-        observation_start: obsStart,
-        sort_order: 'desc',
-        limit: '60', // enough to find a prior valid point
-      });
-      const url = `https://api.stlouisfed.org/fred/series/observations?${params.toString()}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`FRED HTTP ${res.status} (${series_id})`);
       const json = await res.json();
 
-      const obs = Array.isArray(json.observations) ? json.observations : [];
-      // pick latest non-missing value (<= today)
-      const today = new Date().toISOString().slice(0, 10);
-      const valid = obs.filter(o => o.value !== '.' && o.date <= today);
-      if (!valid.length) throw new Error(`No valid observations (${series_id})`);
+      const all = Array.isArray(json?.observations) ? json.observations : [];
+      const valid = all.filter(o => o.value !== '.');
+      if (!valid.length) throw new Error(`No observations (${series_id})`);
 
+      // Latest by date
+      valid.sort((a, b) => (a.date < b.date ? 1 : -1)); // desc
       const latest = valid[0];
-      const prev = valid.find(o => o.date < latest.date);
+      const prev   = valid[1];
 
       const price = Number(latest.value);
       if (!Number.isFinite(price)) throw new Error(`Bad value (${series_id})`);
@@ -46,19 +37,21 @@ export async function handler() {
       return {
         price: Number(price.toFixed(2)),
         pct: pct == null ? null : Number(pct.toFixed(2)),
-        series_id,
+        series_id
       };
     }
 
-    // Try PM fix first (more widely referenced), then AM as backup
-    const tried = [];
     let out;
+    const tried = [];
+
     try {
-      out = await fetchFredSeries('GOLDPMGBD228NLBM'); // PM fix (USD/oz)
+      // PM fix first (more common reference)
+      out = await getFredGold('GOLDPMGBD228NLBM');
       tried.push({ series: 'GOLDPMGBD228NLBM', ok: true });
     } catch (e1) {
       tried.push({ series: 'GOLDPMGBD228NLBM', ok: false, err: e1.message });
-      out = await fetchFredSeries('GOLDAMGBD228NLBM'); // AM fix fallback
+      // Fallback to AM fix
+      out = await getFredGold('GOLDAMGBD228NLBM');
       tried.push({ series: 'GOLDAMGBD228NLBM', ok: true });
     }
 
@@ -78,7 +71,7 @@ export async function handler() {
     };
   } catch (err) {
     console.error('gold.js error:', err);
-    // Keep HTTP 200 so the aggregator doesn't hard-fail; the widget will show "Error" if no cache.
+    // Keep 200 so the aggregator can show “Error” or fall back to cache gracefully
     return {
       statusCode: 200,
       headers: {
