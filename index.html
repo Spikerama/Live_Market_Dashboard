@@ -289,27 +289,8 @@
       : interpolateColor('#ffcd3c','#ff6f6f', (score-50)/50);
   }
 
-  // --------------------------------------------
-  // Minimal helpers for resilient fallbacks
-  // --------------------------------------------
-  async function fetchJSON(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    return res.json();
-  }
-  async function getTwelveQuote(symbol) {
-    const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TWELVE_KEY}`;
-    const j = await fetchJSON(url);
-    if (!j || j.status === 'error' || typeof j.close === 'undefined') {
-      throw new Error(`TwelveData bad payload for ${symbol}`);
-    }
-    const price = Number(j.close);
-    const pct   = Number(j.percent_change);
-    return { price, pct };
-  }
-
   // ──────────────────────────────────────────────────────────────
-  // Unified fetch + cache-fallback (with per-widget fallbacks)
+  // Unified fetch + cache-fallback
   // ──────────────────────────────────────────────────────────────
   async function refreshAllWidgets() {
     let results = {};
@@ -317,71 +298,6 @@
       results = await fetch('/.netlify/functions/fetchAllData').then(r => r.json());
     } catch (e) {
       console.error('fetchAllData failed', e);
-      results = {}; // continue and try per-widget fallbacks
-    }
-
-    // Per-widget fallback: if missing, try direct sources
-    const fallbacks = [];
-
-    if (!results.spy || results.spy.error) {
-      fallbacks.push(
-        getTwelveQuote('SPY')
-          .then(v => { results.spy = v; })
-          .catch(e => { if (!results.spy) results.spy = { error: e.message }; })
-      );
-    }
-    if (!results.tsla || results.tsla.error) {
-      fallbacks.push(
-        getTwelveQuote('TSLA')
-          .then(v => { results.tsla = v; })
-          .catch(e => { if (!results.tsla) results.tsla = { error: e.message }; })
-      );
-    }
-    if (!results.vixy || results.vixy.error) {
-      fallbacks.push(
-        getTwelveQuote('VIXY')
-          .then(v => { results.vixy = v; })
-          .catch(e => { if (!results.vixy) results.vixy = { error: e.message }; })
-      );
-    }
-    if (!results.lit || results.lit.error) {
-      fallbacks.push(
-        getTwelveQuote('LIT')
-          .then(v => { results.lit = v; })
-          .catch(e => { if (!results.lit) results.lit = { error: e.message }; })
-      );
-    }
-    if (!results.yieldCurve || results.yieldCurve.error || typeof results.yieldCurve.spread === 'undefined') {
-      fallbacks.push(
-        fetchJSON('/.netlify/functions/yieldSpread?bust=' + Date.now())
-          .then(v => { results.yieldCurve = v; })
-          .catch(e => { if (!results.yieldCurve) results.yieldCurve = { error: e.message }; })
-      );
-    }
-    if (!results.gold || results.gold.error) {
-      fallbacks.push(
-        fetchJSON('/.netlify/functions/gold?bust=' + Date.now())
-          .then(v => { results.gold = v; })
-          .catch(e => { if (!results.gold) results.gold = { error: e.message }; })
-      );
-    }
-    if (!results.dxy || results.dxy.error) {
-      fallbacks.push(
-        fetchJSON('/.netlify/functions/dxy?bust=' + Date.now())
-          .then(v => { results.dxy = v; })
-          .catch(e => { if (!results.dxy) results.dxy = { error: e.message }; })
-      );
-    }
-    if (!results.buffett || results.buffett.error || typeof results.buffett.ratio === 'undefined') {
-      fallbacks.push(
-        fetchJSON('/.netlify/functions/buffett?bust=' + Date.now())
-          .then(v => { results.buffett = v; })
-          .catch(e => { if (!results.buffett) results.buffett = { error: e.message }; })
-      );
-    }
-
-    if (fallbacks.length) {
-      try { await Promise.allSettled(fallbacks); } catch {}
     }
 
     function apply(key, live, renderer) {
@@ -390,125 +306,76 @@
         if (cache?.data) {
           renderer(cache.data);
           setStatus(document.getElementById(key + '-status'), 'CACHED');
-          const ts = new Date(cache.ts).toLocaleTimeString();
-          const upd = document.getElementById(key + '-updated');
-          if (upd) upd.textContent = 'Updated: ' + ts + ' (cached)';
+          document.getElementById(key + '-updated').textContent =
+            'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
         } else {
-          const valEl = document.getElementById(key);
-          if (valEl) valEl.textContent = '--';
+          document.getElementById(key).textContent = '--';
           setStatus(document.getElementById(key + '-status'), 'ERROR');
         }
-      } else if (live && typeof renderer === 'function') {
-        try {
-          renderer(live);
-          setStatus(document.getElementById(key + '-status'), 'LIVE');
-          cacheSet(key, live);
-          const upd = document.getElementById(key + '-updated');
-          if (upd) upd.textContent = 'Updated: ' + new Date().toLocaleTimeString();
-        } catch (e) {
-          console.error(`render error for ${key}`, e);
-        }
+      } else if (live) {
+        renderer(live);
+        setStatus(document.getElementById(key + '-status'), 'LIVE');
+        cacheSet(key, live);
+        document.getElementById(key + '-updated').textContent =
+          'Updated: ' + new Date().toLocaleTimeString();
       } else {
-        const valEl = document.getElementById(key);
-        if (valEl) valEl.textContent = '--';
+        document.getElementById(key).textContent = '--';
       }
     }
 
     // SPY
     apply('sp500', results.spy, ({ price, pct }) => {
-      document.getElementById('sp500').textContent = Number(price).toFixed(2);
+      document.getElementById('sp500').textContent = price.toFixed(2);
       const el = document.getElementById('sp500-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(Number(pct)).toFixed(2)}%`;
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
     // TSLA
     apply('tsla', results.tsla, ({ price, pct }) => {
-      document.getElementById('tsla').textContent = Number(price).toFixed(2);
+      document.getElementById('tsla').textContent = price.toFixed(2);
       const el = document.getElementById('tsla-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(Number(pct)).toFixed(2)}%`;
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
     // VIXY
     apply('vix', results.vixy, ({ price, pct }) => {
-      document.getElementById('vix').textContent = Number(price).toFixed(2);
+      document.getElementById('vix').textContent = price.toFixed(2);
       const el = document.getElementById('vix-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(Number(pct)).toFixed(2)}%`;
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
     // Lithium ETF
     apply('lithium', results.lit, ({ price, pct }) => {
-      document.getElementById('lithium').textContent = Number(price).toFixed(2);
+      document.getElementById('lithium').textContent = price.toFixed(2);
       const el = document.getElementById('lithium-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(Number(pct)).toFixed(2)}%`;
+      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
-    // GOLD
-    apply('gold', results.gold, ({ price, changePercent, pct }) => {
-      const val = (typeof price === 'number') ? price : null;
-      const ch  = (typeof changePercent === 'number') ? changePercent
-                : (typeof pct === 'number') ? pct : null;
-
-      if (val != null) {
-        document.getElementById('gold').textContent = Number(val).toFixed(2);
-      }
-      const el = document.getElementById('gold-change');
-      if (el) {
-        if (typeof ch === 'number') {
-          el.textContent = `${ch >= 0 ? '▲' : '▼'} ${Math.abs(Number(ch)).toFixed(2)}%`;
-          el.className = 'change ' + (ch >= 0 ? 'up' : 'down');
-        } else {
-          el.textContent = '';
-          el.className = 'change';
-        }
-      }
-    });
-
-    // DXY
-    apply('dxy', results.dxy, ({ value, price, changePercent, pct }) => {
-      const val = (typeof value === 'number') ? value
-                : (typeof price === 'number') ? price : null;
-      const ch  = (typeof changePercent === 'number') ? changePercent
-                : (typeof pct === 'number') ? pct : null;
-
-      if (val != null) {
-        document.getElementById('dxy').textContent = Number(val).toFixed(2);
-      }
-      const el = document.getElementById('dxy-change');
-      if (el) {
-        if (typeof ch === 'number') {
-          el.textContent = `${ch >= 0 ? '▲' : '▼'} ${Math.abs(Number(ch)).toFixed(2)}%`;
-          el.className = 'change ' + (ch >= 0 ? 'up' : 'down');
-        } else {
-          el.textContent = '';
-          el.className = 'change';
-        }
-      }
     });
 
     // Yield Curve
     if (results.yieldCurve?.spread != null) {
-      const s = Number(results.yieldCurve.spread), inv = !!results.yieldCurve.inverted;
+      const s = results.yieldCurve.spread, inv = results.yieldCurve.inverted;
       document.getElementById('yield').textContent = `${s.toFixed(2)}%`;
       const el = document.getElementById('yield-change');
       el.textContent = `${s >= 0 ? '▲' : '▼'} ${inv ? 'Inverted' : 'Normal'}`;
       el.className = 'change ' + (s >= 0 ? 'up' : 'down');
       setStatus(document.getElementById('yield-status'), inv ? 'INVERTED' : 'NORMAL');
-      const upd = document.getElementById('yield-updated');
-      if (upd) upd.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+      document.getElementById('yield-updated').textContent =
+        'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // Estimated Buffett: guard empty {}
+    // ──────────────────────────────────────────────────────────────
+    // Guard against an empty {} for Estimated Buffett
     if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
       results.estimatedBuffett = { error: 'No data' };
     }
 
     // Estimated Buffett
     apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
-      document.getElementById('estimated-buffett').textContent = `${Number(ratio).toFixed(2)}%`;
+      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
       const el = document.getElementById('estimated-buffett-change');
       el.textContent = overvalued
         ? '▲ Overvalued'
@@ -518,9 +385,9 @@
 
     // True Buffett
     apply('buffett', results.buffett, ({ ratio }) => {
-      document.getElementById('buffett').textContent = `${Number(ratio).toFixed(2)}%`;
+      document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
       const statusEl = document.getElementById('buffett-status');
-      if (Number(ratio) >= 3.0) {
+      if (ratio >= 3.0) {
         statusEl.textContent = 'ALERT';
         statusEl.classList.add('badge-error');
         statusEl.classList.remove('badge-live');
@@ -531,9 +398,118 @@
       }
     });
 
+    // Recalc the aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Risk Temperature (deterministic DOM-based)
+  // ──────────────────────────────────────────────────────────────
+  function refreshRiskTemperature() {
+    // helpers
+    const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const txt = id => (document.getElementById(id)?.textContent || '').trim();
+
+    // parse values from DOM
+    const vixVal = (() => {
+      const v = parseFloat(txt('vix-index')); // prefer ^VIX widget
+      if (isFinite(v)) return v;
+      const alt = parseFloat(txt('vix'));     // fallback to VIXY price if needed
+      return isFinite(alt) ? alt : null;
+    })();
+
+    const ycSpread = (() => {
+      const t = txt('yield').replace('%','');
+      const v = parseFloat(t);
+      return isFinite(v) ? v : null;
+    })();
+
+    const buffettPct = (() => {
+      const t = txt('buffett').replace('%','');
+      const v = parseFloat(t);
+      return isFinite(v) ? v : null;
+    })();
+
+    const spyChangePct = (() => {
+      const t = txt('sp500-change');            // e.g., "▲ 0.20%" or "▼ 0.35%"
+      const m = t.match(/([▲▼])?\s*(-?\d+(?:\.\d+)?)%/);
+      if (!m) return null;
+      let v = parseFloat(m[2]);
+      if (t.includes('▼')) v *= -1;
+      return isFinite(v) ? v : null;
+    })();
+
+    // component scoring (0..100)
+    const vixScore = (v) => v == null ? null : clamp(((v - 12) / (35 - 12)) * 100, 0, 100);
+    const ycScore = (s) => {
+      if (s == null) return null;
+      if (s >= 0.5) return 5;
+      if (s >= 0)   return clamp((0.5 - s) / 0.5 * 50, 0, 50);
+      return clamp(50 + (Math.min(0, s) / -1.0) * 50, 50, 100);
+    };
+    const buffettScore = (p) => p == null ? null : clamp(((p - 120) / (250 - 120)) * 100, 0, 100);
+    const spyScore = (p) => {
+      if (p == null) return null;
+      const scaled = 50 - (p * 10); // -5% => 100, 0% => 50, +5% => 0
+      return clamp(scaled, 0, 100);
+    };
+
+    const parts = [];
+    const labels = [];
+
+    const vixS = vixScore(vixVal);
+    if (vixS != null) { parts.push({w: 0.35, s: vixS}); labels.push(`VIX ${vixVal.toFixed(2)}`); }
+
+    const ycS = ycScore(ycSpread);
+    if (ycS != null) { parts.push({w: 0.30, s: ycS}); labels.push(`YC ${ycSpread.toFixed(2)}%`); }
+
+    const bufS = buffettScore(buffettPct);
+    if (bufS != null) { parts.push({w: 0.25, s: bufS}); labels.push(`Buffett ${buffettPct.toFixed(0)}%`); }
+
+    const spyS = spyScore(spyChangePct);
+    if (spyS != null) { parts.push({w: 0.10, s: spyS}); labels.push(`S&P ${spyChangePct>=0?'+':''}${spyChangePct?.toFixed(2)}%`); }
+
+    if (parts.length === 0) {
+      const scoreEl = document.getElementById('risk-temp-score');
+      const statusEl = document.getElementById('risk-temp-status');
+      const detailsEl = document.getElementById('risk-temp-details');
+      const updEl = document.getElementById('risk-temp-updated');
+      if (scoreEl) scoreEl.textContent = '--%';
+      if (statusEl) statusEl.textContent = '--';
+      if (detailsEl) detailsEl.textContent = 'Waiting for signals…';
+      if (updEl) updEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+      return;
+    }
+
+    const wsum = parts.reduce((a, b) => a + b.w, 0);
+    const score = parts.reduce((a, b) => a + b.s * (b.w / wsum), 0);
+    const scorePct = Math.round(score);
+
+    let bucket = 'Calm';
+    if (scorePct >= 75) bucket = 'Alert';
+    else if (scorePct >= 50) bucket = 'Watch';
+    else if (scorePct >= 25) bucket = 'Elevated';
+
+    const scoreEl = document.getElementById('risk-temp-score');
+    const statusEl = document.getElementById('risk-temp-status');
+    const needleEl = document.getElementById('risk-temp-needle');
+    const markerEl = document.getElementById('risk-temp-marker');
+    const detailsEl = document.getElementById('risk-temp-details');
+    const updEl = document.getElementById('risk-temp-updated');
+
+    if (scoreEl) scoreEl.textContent = `${scorePct}%`;
+    if (statusEl) {
+      statusEl.textContent = bucket;
+      statusEl.style.background = 'none';
+      statusEl.style.color = riskColor(scorePct);
+    }
+    if (needleEl) needleEl.style.left = `${scorePct}%`;
+    if (markerEl) markerEl.style.left = `${scorePct}%`;
+    if (detailsEl) detailsEl.textContent = labels.join(' · ');
+    if (updEl) updEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -573,6 +549,7 @@
 
       setStatus(document.getElementById('vix-index-status'), 'LIVE');
 
+      // cache it
       cacheSet('vix-index', { price, change });
     } catch (e) {
       console.error('VIX Index error', e);
