@@ -367,6 +367,32 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
+    // Gold (FRED)
+    apply('gold', results.gold, ({ price, pct }) => {
+      document.getElementById('gold').textContent = price.toFixed(2);
+      const el = document.getElementById('gold-change');
+      if (typeof pct === 'number' && isFinite(pct)) {
+        el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+        el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      } else {
+        el.textContent = '';
+        el.className = 'change';
+      }
+    });
+
+    // DXY / USD Broad Index (DTWEXBGS)
+    apply('dxy', results.dxy, ({ price, pct }) => {
+      document.getElementById('dxy').textContent = price.toFixed(2);
+      const el = document.getElementById('dxy-change');
+      if (typeof pct === 'number' && isFinite(pct)) {
+        el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+        el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      } else {
+        el.textContent = '';
+        el.className = 'change';
+      }
+    });
+
     // ──────────────────────────────────────────────────────────────
     // Guard against an empty {} for Estimated Buffett
     if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
@@ -409,15 +435,14 @@
   // ──────────────────────────────────────────────────────────────
   function refreshRiskTemperature() {
     // helpers
-    const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const txt = id => (document.getElementById(id)?.textContent || '').trim();
 
     // parse values from DOM
     const vixVal = (() => {
-      const v = parseFloat(txt('vix-index')); // prefer ^VIX widget
+      const v = parseFloat(txt('vix-index'));
       if (isFinite(v)) return v;
-      const alt = parseFloat(txt('vix'));     // fallback to VIXY price if needed
+      const alt = parseFloat(txt('vix'));
       return isFinite(alt) ? alt : null;
     })();
 
@@ -590,6 +615,7 @@
     setInterval(refreshVIXIndex, 120000);
   });
 </script>
+
 
 </body>
 </html>
