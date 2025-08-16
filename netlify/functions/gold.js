@@ -1,77 +1,99 @@
 // netlify/functions/gold.js
-// Gold price via TwelveData XAU/USD (USD per troy ounce)
-// Returns: { price: number, changePercent: number|null, source, timestamp }
-// No node-fetch import needed on Netlify's Node 18+
 
-exports.handler = async function () {
-  try {
-    const TWELVE_KEY = process.env.TWELVE_KEY;
-    if (!TWELVE_KEY) {
+// Uses global fetch on Netlify Node 18+
+
+const FRED_KEY = process.env.FRED_KEY;
+const TWELVE_KEY = process.env.TWELVE_KEY;
+const FMP_KEY = process.env.FMP_KEY;
+
+// Get last two valid observations from a FRED series and compute % change
+async function fredLatestPair(seriesId) {
+  if (!FRED_KEY) throw new Error('FRED_KEY missing');
+  const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`FRED HTTP ${res.status} (${seriesId})${body ? ' - ' + body : ''}`);
+  }
+  const json = await res.json();
+  const obs = Array.isArray(json.observations) ? json.observations : [];
+  const clean = obs
+    .filter(o => o && o.value !== '.' && o.value != null && !Number.isNaN(Number(o.value)))
+    .map(o => ({ date: o.date, value: Number(o.value) }));
+
+  if (clean.length === 0) throw new Error(`No observations for ${seriesId}`);
+  const latest = clean[clean.length - 1];
+  const prior  = clean[clean.length - 2]; // may be undefined
+
+  const price = latest.value;
+  let pct = null;
+  if (prior && prior.value) {
+    pct = Number((((price - prior.value) / prior.value) * 100).toFixed(2));
+  }
+  return { price, pct, source: `FRED ${seriesId}` };
+}
+
+// TwelveData fallback: spot XAU/USD
+async function tdGold() {
+  if (!TWELVE_KEY) throw new Error('TWELVE_KEY missing');
+  const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent('XAU/USD')}&apikey=${TWELVE_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.status === 'error') throw new Error(json.message || 'TwelveData error');
+  return {
+    price: Number(json.close),
+    pct: Number(json.percent_change),
+    source: 'TwelveData XAU/USD'
+  };
+}
+
+// FMP fallback: front-month COMEX gold futures (proxy)
+async function fmpGold() {
+  if (!FMP_KEY) throw new Error('FMP_KEY missing');
+  const url = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent('GC=F')}?apikey=${FMP_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
+  const json = await res.json();
+  if (!Array.isArray(json) || !json[0]) throw new Error('Bad FMP data');
+  return {
+    price: Number(json[0].price),
+    pct: Number(json[0].changesPercentage),
+    source: 'FMP GC=F'
+  };
+}
+
+exports.handler = async () => {
+  // Try FRED PM, then FRED AM, then TD, then FMP
+  const attempts = [
+    () => fredLatestPair('GOLDPMGBD228NLBM'),
+    () => fredLatestPair('GOLDAMGBD228NLBM'),
+    () => tdGold(),
+    () => fmpGold(),
+  ];
+
+  const tried = [];
+  for (const fn of attempts) {
+    try {
+      const result = await fn();
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'TWELVE_KEY not set in environment' })
+        body: JSON.stringify({ ...result, timestamp: new Date().toISOString() })
       };
+    } catch (e) {
+      tried.push(e.message || String(e));
     }
-
-    const symbol = encodeURIComponent('XAU/USD');
-    const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${TWELVE_KEY}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} from TwelveData`);
-    }
-    const j = await res.json();
-
-    if (j.status === 'error') {
-      // Typical: daily credit limit exceeded -> let frontend cache-fallback handle it
-      throw new Error(j.message || 'TwelveData returned error');
-    }
-
-    // TwelveData may provide either price or close (for FX they expose price)
-    const priceRaw = j.price ?? j.close;
-    const prevRaw  = j.previous_close ?? null;
-
-    const price = Number(priceRaw);
-    if (!Number.isFinite(price)) {
-      throw new Error('Bad price from TwelveData for XAU/USD');
-    }
-
-    let changePercent = null;
-    if (prevRaw != null && Number.isFinite(Number(prevRaw)) && Number(prevRaw) !== 0) {
-      changePercent = ((price - Number(prevRaw)) / Number(prevRaw)) * 100;
-    } else if (j.percent_change != null && !isNaN(Number(j.percent_change))) {
-      // Some symbols include percent_change directly
-      changePercent = Number(j.percent_change);
-    }
-
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-store, must-revalidate'
-      },
-      body: JSON.stringify({
-        price: Number(price.toFixed(2)),
-        changePercent: changePercent == null ? null : Number(changePercent.toFixed(2)),
-        source: 'TwelveData XAU/USD',
-        timestamp: new Date().toISOString()
-      })
-    };
-  } catch (err) {
-    console.error('gold.js error:', err);
-    // Return 200 with error payload so the frontend can fall back to cache gracefully
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-store, must-revalidate'
-      },
-      body: JSON.stringify({
-        error: String(err.message || err),
-        timestamp: new Date().toISOString()
-      })
-    };
   }
+
+  // If everything failed, return a JSON error (HTTP 200 to keep front-end flow)
+  return {
+    statusCode: 200,
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    body: JSON.stringify({
+      error: 'All gold sources failed',
+      _debug: { tried },
+      timestamp: new Date().toISOString()
+    })
+  };
 };
