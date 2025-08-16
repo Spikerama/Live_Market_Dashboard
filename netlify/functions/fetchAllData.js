@@ -10,6 +10,8 @@ export async function handler(event) {
 
   const TWELVE_KEY = process.env.TWELVE_KEY;
   const FMP_KEY = process.env.FMP_KEY;
+  const FRED_KEY = process.env.FRED_KEY;
+
   const results = {};
 
   // Helper: fetch from TwelveData
@@ -31,6 +33,31 @@ export async function handler(event) {
     const json = await res.json();
     if (!Array.isArray(json) || !json[0]) throw new Error('Bad FMP data');
     return { price: parseFloat(json[0].price), pct: parseFloat(json[0].changesPercentage) };
+  }
+
+  // Helper: FRED latest + prior observation → {price, pct}
+  async function fredLatestPair(series_id) {
+    if (!FRED_KEY) throw new Error('FRED_KEY missing');
+    const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series_id}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=20`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`FRED HTTP ${res.status} (${series_id})`);
+    const json = await res.json();
+    if (!json || !Array.isArray(json.observations)) throw new Error(`Bad FRED payload (${series_id})`);
+
+    const clean = json.observations
+      .filter(o => o.value !== '.' && o.value != null && !Number.isNaN(Number(o.value)))
+      .map(o => ({ date: o.date, value: Number(o.value) }));
+
+    if (clean.length === 0) throw new Error(`No observations (${series_id})`);
+    const latest = clean[0];
+    const prior  = clean[1]; // may be undefined on first day
+
+    const price = latest.value;
+    let pct = null;
+    if (prior && prior.value !== 0) {
+      pct = Number((((price - prior.value) / prior.value) * 100).toFixed(2));
+    }
+    return { price, pct };
   }
 
   // 1) SPY
@@ -81,7 +108,7 @@ export async function handler(event) {
     }
   }
 
-  // 5) Yield Curve Spread
+  // 5) Yield Curve Spread (via internal lambda)
   try {
     const res = await fetch(`${base}/.netlify/functions/yieldSpread?bust=${bust}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -90,7 +117,7 @@ export async function handler(event) {
     results.yieldCurve = { error: err.message };
   }
 
-  // 6) Estimated Buffett
+  // 6) Estimated Buffett (internal lambda)
   try {
     const res = await fetch(`${base}/.netlify/functions/estimatedBuffett?bust=${bust}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -99,7 +126,7 @@ export async function handler(event) {
     results.estimatedBuffett = { error: err.message };
   }
 
-  // 7) True Buffett
+  // 7) True Buffett (internal lambda)
   try {
     const res = await fetch(`${base}/.netlify/functions/buffett?bust=${bust}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -108,20 +135,16 @@ export async function handler(event) {
     results.buffett = { error: err.message };
   }
 
-  // 8) GOLD (new)
+  // 8) GOLD — pull straight from FRED (LBMA PM fix)
   try {
-    const res = await fetch(`${base}/.netlify/functions/gold?bust=${bust}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    results.gold = await res.json();
+    results.gold = await fredLatestPair('GOLDPMGBD228NLBM');
   } catch (err) {
     results.gold = { error: err.message };
   }
 
-  // 9) DXY (new)
+  // 9) DXY (broad USD index) — FRED DTWEXBGS
   try {
-    const res = await fetch(`${base}/.netlify/functions/dxy?bust=${bust}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    results.dxy = await res.json();
+    results.dxy = await fredLatestPair('DTWEXBGS');
   } catch (err) {
     results.dxy = { error: err.message };
   }
