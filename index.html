@@ -397,6 +397,32 @@
         statusEl.classList.remove('badge-error');
       }
     });
+    
+    // GOLD
+apply('gold', results.gold, ({ price, pct }) => {
+  document.getElementById('gold').textContent = Number(price).toFixed(2);
+  const el = document.getElementById('gold-change');
+  if (typeof pct === 'number' && isFinite(pct)) {
+    el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+    el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+  } else {
+    el.textContent = '';
+    el.className = 'change';
+  }
+});
+
+// DXY
+apply('dxy', results.dxy, ({ price, pct }) => {
+  document.getElementById('dxy').textContent = Number(price).toFixed(2);
+  const el = document.getElementById('dxy-change');
+  if (typeof pct === 'number' && isFinite(pct)) {
+    el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+    el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+  } else {
+    el.textContent = '';
+    el.className = 'change';
+  }
+});
 
     // Recalc the aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
