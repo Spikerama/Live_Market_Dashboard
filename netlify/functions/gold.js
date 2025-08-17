@@ -1,12 +1,11 @@
 // netlify/functions/gold.js
 // Returns { price, pct, source, timestamp } or { error, _debug, timestamp }
-// Tries TwelveData (XAU/USD), then FMP (GC=F), then FRED PM, then FRED AM.
+// Tries TwelveData (XAU/USD) → FMP (GC=F) → FRED PM → FRED AM
 
 const FRED_KEY   = process.env.FRED_KEY;
 const TWELVE_KEY = process.env.TWELVE_KEY;
 const FMP_KEY    = process.env.FMP_KEY;
 
-// ---------- Helpers ----------
 async function tdGold() {
   if (!TWELVE_KEY) throw new Error('TWELVE_KEY missing');
   const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent('XAU/USD')}&apikey=${TWELVE_KEY}`;
@@ -33,7 +32,6 @@ async function fmpGold() {
   return { price, pct: Number.isFinite(pct) ? pct : null, source: 'FMP GC=F' };
 }
 
-// Get last 2 valid FRED observations and compute % change
 async function fredLatestPair(seriesId) {
   if (!FRED_KEY) throw new Error('FRED_KEY missing');
   const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json`;
@@ -43,15 +41,14 @@ async function fredLatestPair(seriesId) {
     throw new Error(`FRED HTTP ${res.status} (${seriesId})${body ? ' - ' + body : ''}`);
   }
   const json = await res.json();
-  const obs  = Array.isArray(json.observations) ? json.observations : [];
+  const obs = Array.isArray(json.observations) ? json.observations : [];
   const clean = obs
     .filter(o => o && o.value !== '.' && o.value != null && !Number.isNaN(Number(o.value)))
     .map(o => ({ date: o.date, value: Number(o.value) }));
-
   if (clean.length === 0) throw new Error(`FRED ${seriesId}: no observations`);
+
   const latest = clean[clean.length - 1];
   const prior  = clean[clean.length - 2];
-
   const price = latest.value;
   let pct = null;
   if (prior && Number.isFinite(prior.value) && prior.value !== 0) {
@@ -60,16 +57,15 @@ async function fredLatestPair(seriesId) {
   return { price, pct, source: `FRED ${seriesId}` };
 }
 
-// ---------- Handler ----------
 exports.handler = async () => {
+  const tried = [];
   const attempts = [
-    () => tdGold(),                                     // 1) TwelveData spot XAU/USD
-    () => fmpGold(),                                    // 2) FMP front-month gold futures
-    () => fredLatestPair('GOLDPMGBD228NLBM'),           // 3) FRED PM fix
-    () => fredLatestPair('GOLDAMGBD228NLBM'),           // 4) FRED AM fix
+    () => tdGold(),
+    () => fmpGold(),
+    () => fredLatestPair('GOLDPMGBD228NLBM'), // PM fix
+    () => fredLatestPair('GOLDAMGBD228NLBM'), // AM fix
   ];
 
-  const tried = [];
   for (const fn of attempts) {
     try {
       const { price, pct, source } = await fn();
@@ -83,14 +79,9 @@ exports.handler = async () => {
     }
   }
 
-  // If every source failed, still return 200 so frontend can cache-fallback
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    body: JSON.stringify({
-      error: 'All gold sources failed',
-      _debug: { tried },
-      timestamp: new Date().toISOString()
-    })
+    body: JSON.stringify({ error: 'All gold sources failed', _debug: { tried }, timestamp: new Date().toISOString() })
   };
 };
