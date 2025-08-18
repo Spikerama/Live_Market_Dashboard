@@ -76,7 +76,7 @@ export async function handler(event) {
 
   // ---------- Equities / ETFs (with fallback) ----------
   results.spy  = await tdWithFmpFallback('SPY');
-  results.vixy = await tdWithFmpFallback('VIXY');
+  // results.vixy = await tdWithFmpFallback('VIXY'); // (disabled)
   results.tsla = await tdWithFmpFallback('TSLA');
   results.lit  = await tdWithFmpFallback('LIT');
 
@@ -89,13 +89,14 @@ export async function handler(event) {
     results.yieldCurve = { error: err.message };
   }
 
-  try {
-    const r = await fetch(`${base}/.netlify/functions/estimatedBuffett?bust=${bust}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    results.estimatedBuffett = await r.json();
-  } catch (err) {
-    results.estimatedBuffett = { error: err.message };
-  }
+  // Estimated Buffett removed
+  // try {
+  //   const r = await fetch(`${base}/.netlify/functions/estimatedBuffett?bust=${bust}`);
+  //   if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  //   results.estimatedBuffett = await r.json();
+  // } catch (err) {
+  //   results.estimatedBuffett = { error: err.message };
+  // }
 
   try {
     const r = await fetch(`${base}/.netlify/functions/buffett?bust=${bust}`);
