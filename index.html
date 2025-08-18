@@ -339,14 +339,6 @@
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
-    // VIXY
-    apply('vix', results.vixy, ({ price, pct }) => {
-      document.getElementById('vix').textContent = price.toFixed(2);
-      const el = document.getElementById('vix-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
     // Lithium ETF
     apply('lithium', results.lit, ({ price, pct }) => {
       document.getElementById('lithium').textContent = price.toFixed(2);
@@ -372,16 +364,6 @@
     if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
       results.estimatedBuffett = { error: 'No data' };
     }
-
-    // Estimated Buffett
-    apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
-      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
-      const el = document.getElementById('estimated-buffett-change');
-      el.textContent = overvalued
-        ? '▲ Overvalued'
-        : (ratio >= 2.5 ? '▲ Caution' : '▼ Normal');
-      el.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
-    });
 
     // True Buffett
     apply('buffett', results.buffett, ({ ratio }) => {
