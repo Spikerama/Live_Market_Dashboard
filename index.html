@@ -246,8 +246,8 @@
     const [r1,g1,b1] = [(f(from)>>16)&255, (f(from)>>8)&255, f(from)&255];
     const [r2,g2,b2] = [(f(to)>>16)&255,   (f(to)>>8)&255,   f(to)&255];
     const rn = Math.round(r1 + (r2 - r1)*t);
-    const gn = Math.round(g1 + (r2 - g1)*t);
-    const bn = Math.round(b1 + (r2 - b1)*t);
+    const gn = Math.round(g1 + (g2 - g1)*t);
+    const bn = Math.round(b1 + (b2 - b1)*t);
     return `rgb(${rn},${gn},${bn})`;
   }
   function riskColor(score) {
@@ -306,14 +306,6 @@
       el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
     });
 
-    // VIXY
-    apply('vix', results.vixy, ({ price, pct }) => {
-      document.getElementById('vix').textContent = price.toFixed(2);
-      const el = document.getElementById('vix-change');
-      el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
-      el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
-    });
-
     // Lithium ETF
     apply('lithium', results.lit, ({ price, pct }) => {
       document.getElementById('lithium').textContent = price.toFixed(2);
@@ -334,22 +326,6 @@
         'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // Guard against an empty {} for Estimated Buffett
-    if (results.estimatedBuffett && typeof results.estimatedBuffett.ratio === 'undefined') {
-      results.estimatedBuffett = { error: 'No data' };
-    }
-
-    // Estimated Buffett
-    apply('estimated-buffett', results.estimatedBuffett, ({ ratio, overvalued }) => {
-      document.getElementById('estimated-buffett').textContent = `${ratio.toFixed(2)}%`;
-      const el = document.getElementById('estimated-buffett-change');
-      el.textContent = overvalued
-        ? '▲ Overvalued'
-        : (ratio >= 2.5 ? '▲ Caution' : '▼ Normal');
-      el.className = 'change ' + (overvalued ? 'up' : (ratio >= 2.5 ? 'up' : 'down'));
-    });
-
     // True Buffett
     apply('buffett', results.buffett, ({ ratio }) => {
       document.getElementById('buffett').textContent = `${ratio.toFixed(2)}%`;
@@ -365,6 +341,32 @@
       }
     });
 
+    // GOLD
+    apply('gold', results.gold, ({ price, pct }) => {
+      document.getElementById('gold').textContent = Number(price).toFixed(2);
+      const el = document.getElementById('gold-change');
+      if (typeof pct === 'number') {
+        el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+        el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      } else {
+        el.textContent = '';
+        el.className = 'change';
+      }
+    });
+
+    // DXY
+    apply('dxy', results.dxy, ({ price, pct }) => {
+      document.getElementById('dxy').textContent = Number(price).toFixed(2);
+      const el = document.getElementById('dxy-change');
+      if (typeof pct === 'number') {
+        el.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}%`;
+        el.className = 'change ' + (pct >= 0 ? 'up' : 'down');
+      } else {
+        el.textContent = '';
+        el.className = 'change';
+      }
+    });
+
     // Recalc the aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
@@ -372,7 +374,7 @@
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Risk Temperature (new calibration)
+  // Risk Temperature (now supports pct OR changePercent/change)
   // ──────────────────────────────────────────────────────────────
   function refreshRiskTemperature() {
     const scoreEl   = document.getElementById('risk-temp-score');
@@ -381,12 +383,13 @@
     const detailsEl = document.getElementById('risk-temp-details');
     const updatedEl = document.getElementById('risk-temp-updated');
 
-    // helpers
     const clamp = (v, lo=0, hi=100) => Math.max(lo, Math.min(hi, v));
+
+    // read a % change from cache with fallbacks: pct → changePercent → change
     const readPct = (key) => {
       const d = cacheGet(key)?.data;
       if (!d) return null;
-      for (const k of ['pct', 'changePercent', 'change']) {
+      for (const k of ['pct','changePercent','change']) {
         const v = d[k];
         if (typeof v === 'number' && isFinite(v)) return v;
       }
@@ -395,61 +398,54 @@
 
     const parts = [];
 
-    // --- SPY daily % (directional tape risk) weight 0.15 ---
+    // S&P 500 (SPY) daily % change → risk score (down = more risk)
     const spyPct = readPct('sp500');
     if (spyPct !== null) {
-      // +1% ⇒ -8 risk pts (safer), -1% ⇒ +8 (riskier)
-      const s = clamp(50 - 8 * spyPct);
-      parts.push({ label: `S&P ${spyPct >= 0 ? '+' : ''}${spyPct.toFixed(2)}%`, score: s, weight: 0.15 });
+      const s = clamp(50 - 12 * spyPct);
+      parts.push({ label: `S&P ${spyPct >= 0 ? '+' : ''}${spyPct.toFixed(2)}%`, score: s, weight: 0.20 });
     }
 
-    // --- VIX level preferred; else % change (tactical stress) weight 0.30 ---
+    // VIX index (prefer level; fallback to % change if that’s all we have)
     const vixLevel = cacheGet('vix-index')?.data?.price;
+    const vixChg   = readPct('vix-index');
     if (typeof vixLevel === 'number' && isFinite(vixLevel)) {
-      // 12→25, 15→32.5, 20→45, 30→70, 40→95
-      const s = clamp(25 + 2.5 * (vixLevel - 12));
-      parts.push({ label: `VIX ${vixLevel.toFixed(2)}`, score: s, weight: 0.30 });
-    } else {
-      const vixChg = readPct('vix-index');
-      if (vixChg !== null) {
-        // +1% VIX ≈ +4 risk pts
-        const s = clamp(50 + 4 * vixChg);
-        parts.push({ label: `VIX ${vixChg >= 0 ? '+' : ''}${Math.abs(vixChg).toFixed(2)}%`, score: s, weight: 0.30 });
-      }
+      const s = clamp(20 + (vixLevel - 12) * 3);
+      parts.push({ label: `VIX ${vixLevel.toFixed(2)}`, score: s, weight: 0.25 });
+    } else if (vixChg !== null) {
+      const s = clamp(50 + (vixChg * 4));
+      parts.push({ label: `VIX ${vixChg >= 0 ? '+' : ''}${Math.abs(vixChg).toFixed(2)}%`, score: s, weight: 0.15 });
     }
 
-    // --- Yield curve 10y-2y (structural) weight 0.25 ---
+    // Yield curve spread (10y-2y)
     const yc = cacheGet('yield')?.data?.spread;
     if (typeof yc === 'number' && isFinite(yc)) {
       const s = yc < 0
-        ? clamp(70 + Math.min(30, Math.abs(yc) * 25)) // deeper inversion ⇒ higher risk
-        : clamp(40 - Math.min(25, yc * 20));          // steeper curve ⇒ safer
-      parts.push({ label: `YC ${yc.toFixed(2)}%`, score: s, weight: 0.25 });
+        ? clamp(70 + Math.min(30, Math.abs(yc) * 25))
+        : clamp(40 - Math.min(25, yc * 20));
+      parts.push({ label: `YC ${yc.toFixed(2)}%`, score: s, weight: 0.20 });
     }
 
-    // --- Buffett ratio (valuation) weight 0.20 ---
-    const buff = cacheGet('buffett')?.data?.ratio; // ratio in %
+    // Buffett ratio
+    const buff = cacheGet('buffett')?.data?.ratio;
     if (typeof buff === 'number' && isFinite(buff)) {
-      // 120%→0, 195%→~52.5, 210%→63, 240%→84, 260%→98
       const s = clamp((buff - 120) * 0.7);
       parts.push({ label: `Buffett ${buff.toFixed(0)}%`, score: s, weight: 0.20 });
     }
 
-    // --- Gold daily % (risk-off bid) weight 0.05 ---
+    // Gold % change
     const goldPct = readPct('gold');
     if (goldPct !== null) {
-      const s = clamp(50 + 10 * goldPct); // +1% Gold ⇒ +10 pts risk
-      parts.push({ label: `Gold ${goldPct >= 0 ? '+' : ''}${goldPct.toFixed(2)}%`, score: s, weight: 0.05 });
+      const s = clamp(50 + goldPct * 10);
+      parts.push({ label: `Gold ${goldPct >= 0 ? '+' : ''}${goldPct.toFixed(2)}%`, score: s, weight: 0.075 });
     }
 
-    // --- DXY daily % (USD tightening) weight 0.05 ---
+    // DXY % change
     const dxyPct = readPct('dxy');
     if (dxyPct !== null) {
-      const s = clamp(50 + 10 * dxyPct); // +1% DXY ⇒ +10 pts risk
-      parts.push({ label: `DXY ${dxyPct >= 0 ? '+' : ''}${dxyPct.toFixed(2)}%`, score: s, weight: 0.05 });
+      const s = clamp(50 + dxyPct * 10);
+      parts.push({ label: `DXY ${dxyPct >= 0 ? '+' : ''}${dxyPct.toFixed(2)}%`, score: s, weight: 0.075 });
     }
 
-    // nothing available yet
     if (!parts.length) {
       if (scoreEl)   scoreEl.textContent = '--%';
       if (statusEl)  statusEl.textContent = '--';
@@ -458,17 +454,14 @@
       return;
     }
 
-    // renormalize weights (if some parts missing)
-    const wsum = parts.reduce((a, p) => a + p.weight, 0) || 1;
-    const score = Math.round(parts.reduce((a, p) => a + p.score * (p.weight / wsum), 0));
+    const wsum  = parts.reduce((a, p) => a + p.weight, 0) || 1;
+    const score = Math.round(parts.reduce((a, p) => a + p.score * p.weight, 0) / wsum);
 
-    // bands
     let band = 'Calm';
-    if (score >= 70) band = 'Alert';
+    if (score >= 75) band = 'Alert';
     else if (score >= 50) band = 'Elevated';
-    else if (score >= 30) band = 'Watch';
+    else if (score >= 25) band = 'Watch';
 
-    // write UI
     if (scoreEl)  scoreEl.textContent = `${score}%`;
     if (statusEl) {
       statusEl.textContent = band;
@@ -516,7 +509,6 @@
 
       setStatus(document.getElementById('vix-index-status'), 'LIVE');
 
-      // cache it
       cacheSet('vix-index', { price, change });
     } catch (e) {
       console.error('VIX Index error', e);
