@@ -16,7 +16,14 @@
     .header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.5rem;padding:.75rem 1rem;}
     .title{font-size:1.5rem;font-weight:700;display:flex;align-items:center;gap:.5rem;}
     .sub{font-size:.85rem;color:var(--text-secondary);margin-top:2px;}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-top:.5rem;}
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+      gap:1rem;
+      margin-top:.5rem;
+      /* lets cards span rows nicely */
+      grid-auto-rows:minmax(180px, auto);
+    }
     .card{position:relative;background:var(--card-bg);border-radius:var(--radius);padding:1.25rem 1rem 1.5rem;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform var(--transition),box-shadow var(--transition);overflow:hidden;border:1px solid var(--border);}
     .card.alert{box-shadow:0 0 25px 3px var(--error);}
     .card:hover{transform:translateY(-2px);box-shadow:0 20px 50px -10px rgba(255,255,255,0.2);}
@@ -54,10 +61,10 @@
     #card-estimated-buffett .threshold-inner {
       display:none;
     }
-    /* make the Risk card span 2 columns on larger screens */
-    .card.wide { grid-column: span 2; }
+    /* NEW: make the Risk card tall (two rows) on larger screens */
+    .card.tall { grid-row: span 2; }
     @media (max-width: 900px) {
-      .card.wide { grid-column: span 1; }
+      .card.tall { grid-row: span 1; }
     }
     /* tidy breakdown list */
     #risk-breakdown-wrap { margin-top: 6px; }
@@ -84,8 +91,8 @@
     </div>
 
     <div class="grid" id="dashboard-grid">
-      <!-- Risk Temperature (wide) -->
-      <div class="card wide" data-widget="risk-temp" id="card-risk-temp">
+      <!-- Risk Temperature (tall, left) -->
+      <div class="card tall" data-widget="risk-temp" id="card-risk-temp">
         <div class="small-label">Aggregate</div>
         <h2>Risk Temperature</h2>
         <div class="value" style="flex-direction:column;gap:4px;">
@@ -485,11 +492,12 @@
     if (statusEl) { statusEl.textContent = band; statusEl.style.color = riskColor(score); }
     if (needleEl) needleEl.style.left = `${score}%`;
 
-    // Top drivers line (compact)
+    // Top drivers line (compact) — contribution points (weight × score)
     const top3 = [...withPts].sort((a,b)=>b.points-a.points).slice(0,3);
     if (detailsEl) {
       const txt = 'Top: ' + top3.map(p => `${p.name} ${(p.points).toFixed(1)}`).join(' · ');
       detailsEl.textContent = txt;
+      detailsEl.title = 'Top contributors by points (weight × score). Sum of all ≈ total score.';
     }
 
     // Full breakdown list
