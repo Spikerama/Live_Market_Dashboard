@@ -288,7 +288,14 @@
     }
 
     function apply(key, live, renderer) {
-      const cache = cacheGet(key);
+    // simple per-key TTLs (ms): Gold & DXY ~36h, VIX intraday 2h
+    const TTL = { gold: 36*3600e3, dxy: 36*3600e3, 'vix-index': 2*3600e3 };
+     let cache = cacheGet(key);
+    if (cache && TTL[key] && (Date.now() - cache.ts) > TTL[key]) {
+      localStorage.removeItem(key);
+      cache = null; // force a fresh render/fetch
+    }
+
       if (live?.error) {
         if (cache?.data) {
           renderer(cache.data);
