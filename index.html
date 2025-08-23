@@ -288,50 +288,13 @@
     }
 
 function apply(key, live, renderer) {
-  // Per-key TTLs for normal use (how long a cache is allowed to live)
-  const TTL = {
-    gold: 6 * 3600e3,       // 6h (gold is daily but we don't want very old cache)
-    dxy: 24 * 3600e3,       // 24h (daily)
-    'vix-index': 2 * 3600e3 // 2h (intraday-ish)
-  };
-
-  // If the live call errors, we will only trust cache if it's younger than this.
-  const MAX_CACHE_ON_ERROR = 3 * 3600e3; // 3h
-
+  // simple per-key TTLs (ms): Gold & DXY ~36h, VIX intraday 2h
+  const TTL = { gold: 36*3600e3, dxy: 36*3600e3, 'vix-index': 2*3600e3 };
   let cache = cacheGet(key);
-  const now = Date.now();
-
-  // Drop cache if it's beyond TTL for this key
-  if (cache && TTL[key] && (now - cache.ts) > TTL[key]) {
+  if (cache && TTL[key] && (Date.now() - cache.ts) > TTL[key]) {
     localStorage.removeItem(key);
-    cache = null;
+    cache = null; // force a fresh render/fetch
   }
-
-  // Happy path: live is good
-  if (live && !live.error) {
-    renderer(live);
-    setStatus(document.getElementById(key + '-status'), 'LIVE');
-    cacheSet(key, live);
-    const u = document.getElementById(key + '-updated');
-    if (u) u.textContent = 'Updated: ' + new Date().toLocaleTimeString();
-    return;
-  }
-
-  // Live errored: use cache only if it's fresh enough
-  if (live?.error && cache?.data && (now - cache.ts) <= MAX_CACHE_ON_ERROR) {
-    renderer(cache.data);
-    setStatus(document.getElementById(key + '-status'), 'CACHED');
-    const u = document.getElementById(key + '-updated');
-    if (u) u.textContent = 'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
-    return;
-  }
-
-  // Nothing usable
-  const valEl = document.getElementById(key);
-  if (valEl) valEl.textContent = '--';
-  setStatus(document.getElementById(key + '-status'), 'ERROR');
-}
-
 
       if (live?.error) {
         if (cache?.data) {
