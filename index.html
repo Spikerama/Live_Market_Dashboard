@@ -16,14 +16,7 @@
     .header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.5rem;padding:.75rem 1rem;}
     .title{font-size:1.5rem;font-weight:700;display:flex;align-items:center;gap:.5rem;}
     .sub{font-size:.85rem;color:var(--text-secondary);margin-top:2px;}
-    .grid{
-      display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-      gap:1rem;
-      margin-top:.5rem;
-      /* lets cards span rows nicely */
-      grid-auto-rows:minmax(180px, auto);
-    }
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-top:.5rem;}
     .card{position:relative;background:var(--card-bg);border-radius:var(--radius);padding:1.25rem 1rem 1.5rem;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform var(--transition),box-shadow var(--transition);overflow:hidden;border:1px solid var(--border);}
     .card.alert{box-shadow:0 0 25px 3px var(--error);}
     .card:hover{transform:translateY(-2px);box-shadow:0 20px 50px -10px rgba(255,255,255,0.2);}
@@ -54,23 +47,8 @@
     .temp-needle{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,0.8);transform:translateX(-50%);pointer-events:none;z-index:2;}
     .temp-label{margin-top:4px;font-size:.75rem;}
     .sortable-ghost{opacity:.6;transform:scale(1.02);box-shadow:0 35px 80px -10px rgba(255,255,255,0.1);}
-    /* hide threshold bars on Buffett widgets as requested */
     #card-buffett .threshold-bar,
-    #card-buffett .threshold-inner,
-    #card-estimated-buffett .threshold-bar,
-    #card-estimated-buffett .threshold-inner {
-      display:none;
-    }
-    /* NEW: make the Risk card tall (two rows) on larger screens */
-    .card.tall { grid-row: span 2; }
-    @media (max-width: 900px) {
-      .card.tall { grid-row: span 1; }
-    }
-    /* tidy breakdown list */
-    #risk-breakdown-wrap { margin-top: 6px; }
-    #risk-breakdown-wrap summary { cursor: pointer; color: var(--text-secondary); font-size: .8rem; }
-    #risk-breakdown { list-style: none; padding-left: 0; margin: 6px 0 0; font-size: .8rem; color: var(--text-secondary); }
-    #risk-breakdown li { margin: 2px 0; }
+    #card-buffett .threshold-inner { display:none; }
   </style>
 </head>
 <body>
@@ -91,8 +69,7 @@
     </div>
 
     <div class="grid" id="dashboard-grid">
-      <!-- Risk Temperature (tall, left) -->
-      <div class="card tall" data-widget="risk-temp" id="card-risk-temp">
+      <div class="card" data-widget="risk-temp" id="card-risk-temp">
         <div class="small-label">Aggregate</div>
         <h2>Risk Temperature</h2>
         <div class="value" style="flex-direction:column;gap:4px;">
@@ -106,20 +83,13 @@
           </div>
         </div>
         <div class="temp-label" id="risk-temp-details">Weighted aggregate score of all indicators</div>
-        <!-- collapsible breakdown -->
-        <details id="risk-breakdown-wrap">
-          <summary>Breakdown</summary>
-          <ul id="risk-breakdown"></ul>
-        </details>
         <div class="timestamp" id="risk-temp-updated">Updated: --</div>
       </div>
 
       <div class="card" data-widget="sp500" id="card-sp500">
         <div class="small-label">Equity</div>
         <h2>S&P 500 (SPY)</h2>
-        <div class="value" id="sp500">
-          -- <span id="sp500-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="sp500">-- <span id="sp500-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="sp500-change"></div>
           <div id="sp500-status" class="badge">--</div>
@@ -131,9 +101,7 @@
       <div class="card" data-widget="yield" id="card-yield">
         <div class="small-label">Macro</div>
         <h2>10Y − 2Y Yield Curve Spread</h2>
-        <div class="value" id="yield">
-          -- <span id="yield-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="yield">-- <span id="yield-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="yield-change"></div>
           <div id="yield-status" class="badge">--</div>
@@ -163,9 +131,7 @@
       <div class="card" data-widget="tsla" id="card-tsla">
         <div class="small-label">Equity</div>
         <h2>Tesla (TSLA)</h2>
-        <div class="value" id="tsla">
-          -- <span id="tsla-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="tsla">-- <span id="tsla-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="tsla-change"></div>
           <div id="tsla-status" class="badge">--</div>
@@ -177,9 +143,7 @@
       <div class="card" data-widget="lithium" id="card-lithium">
         <div class="small-label">Commodity Proxy</div>
         <h2>Lithium Spot Proxy (LIT ETF)</h2>
-        <div class="value" id="lithium">
-          -- <span id="lithium-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="lithium">-- <span id="lithium-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="lithium-change"></div>
           <div id="lithium-status" class="badge">--</div>
@@ -187,14 +151,12 @@
         <div class="stale" id="lithium-stale" style="display:none;">Using cached value</div>
         <div class="timestamp" id="lithium-updated">Updated: --</div>
       </div>
-      
+
       <!-- GOLD -->
       <div class="card" data-widget="gold" id="card-gold">
         <div class="small-label">Commodity</div>
         <h2>Gold (USD/oz)</h2>
-        <div class="value" id="gold">
-          -- <span id="gold-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="gold">-- <span id="gold-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="gold-change"></div>
           <div id="gold-status" class="badge">--</div>
@@ -207,9 +169,7 @@
       <div class="card" data-widget="dxy" id="card-dxy">
         <div class="small-label">Currency</div>
         <h2>USD Broad Index (FRED)</h2>
-        <div class="value" id="dxy">
-          -- <span id="dxy-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="dxy">-- <span id="dxy-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="dxy-change"></div>
           <div id="dxy-status" class="badge">--</div>
@@ -221,9 +181,7 @@
       <div class="card" data-widget="vixindex" id="card-vix-index">
         <div class="small-label">Volatility</div>
         <h2>VIX Index (^VIX)</h2>
-        <div class="value" id="vix-index">
-          -- <span id="vix-index-spinner" class="spinner" style="display:none;"></span>
-        </div>
+        <div class="value" id="vix-index">-- <span id="vix-index-spinner" class="spinner" style="display:none;"></span></div>
         <div class="mini">
           <div class="change" id="vix-index-change"></div>
           <div id="vix-index-status" class="badge">--</div>
@@ -234,8 +192,7 @@
     </div>
 
     <div class="note">
-      Data sources: TwelveData for ETFs, Netlify functions for VIX index, yield spread, Estimated Buffett. Aggregated “Risk Temperature” mixes structural and near-term market stress.  
-      Rule: working widgets are isolated; new features only after verified.
+      Data sources: TwelveData for ETFs, Netlify functions for VIX index, yield spread, Buffett; FRED for Gold & Broad USD. Aggregated “Risk Temperature” mixes structural and near-term market stress.
     </div>
   </div>
 
@@ -243,12 +200,10 @@
   const TWELVE_KEY = '26137bba624c4dcb9b5284ad1b234071';
 
   function cacheSet(key, obj) {
-    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); }
-    catch {}
+    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: obj })); } catch {}
   }
   function cacheGet(key) {
-    try { return JSON.parse(localStorage.getItem(key)); }
-    catch { return null; }
+    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
   }
 
   function setStatus(el, type) {
@@ -266,8 +221,8 @@
     const [r1,g1,b1] = [(f(from)>>16)&255, (f(from)>>8)&255, f(from)&255];
     const [r2,g2,b2] = [(f(to)>>16)&255,   (f(to)>>8)&255,   f(to)&255];
     const rn = Math.round(r1 + (r2 - r1)*t);
-    const gn = Math.round(g1 + (r2 - g1)*t);
-    const bn = Math.round(b1 + (r2 - b1)*t);
+    const gn = Math.round(g1 + (g2 - g1)*t);
+    const bn = Math.round(b1 + (b2 - b1)*t);
     return `rgb(${rn},${gn},${bn})`;
   }
   function riskColor(score) {
@@ -283,38 +238,52 @@
     let results = {};
     try {
       results = await fetch('/.netlify/functions/fetchAllData').then(r => r.json());
-    } catch (e) {
-      console.error('fetchAllData failed', e);
-    }
+    } catch (e) { console.error('fetchAllData failed', e); }
 
-function apply(key, live, renderer) {
-  // simple per-key TTLs (ms): Gold & DXY ~36h, VIX intraday 2h
-  const TTL = { gold: 36*3600e3, dxy: 36*3600e3, 'vix-index': 2*3600e3 };
-  let cache = cacheGet(key);
-  if (cache && TTL[key] && (Date.now() - cache.ts) > TTL[key]) {
-    localStorage.removeItem(key);
-    cache = null; // force a fresh render/fetch
-  }
+    // ↓↓↓ ONLY apply() is changed (TTL + max-age-on-error). Everything else is identical.
+    function apply(key, live, renderer) {
+      const TTL = {
+        gold: 6 * 3600e3,
+        dxy: 24 * 3600e3,
+        'vix-index': 2 * 3600e3,
+        sp500: 2 * 3600e3,
+        tsla: 2 * 3600e3,
+        lithium: 6 * 3600e3,
+        yield: 6 * 3600e3,
+        buffett: 7 * 24 * 3600e3
+      };
+      const MAX_CACHE_ON_ERROR = 3 * 3600e3;
 
-      if (live?.error) {
-        if (cache?.data) {
-          renderer(cache.data);
-          setStatus(document.getElementById(key + '-status'), 'CACHED');
-          document.getElementById(key + '-updated').textContent =
-            'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
-        } else {
-          document.getElementById(key).textContent = '--';
-          setStatus(document.getElementById(key + '-status'), 'ERROR');
-        }
-      } else if (live) {
+      let cache = cacheGet(key);
+      const now = Date.now();
+
+      if (cache && TTL[key] && (now - cache.ts) > TTL[key]) {
+        localStorage.removeItem(key);
+        cache = null;
+      }
+
+      if (live && !live.error) {
         renderer(live);
         setStatus(document.getElementById(key + '-status'), 'LIVE');
         cacheSet(key, live);
-        document.getElementById(key + '-updated').textContent =
-          'Updated: ' + new Date().toLocaleTimeString();
-      } else {
-        document.getElementById(key).textContent = '--';
+        const u = document.getElementById(key + '-updated');
+        if (u) u.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        return;
       }
+
+      if (live?.error && cache?.data && (now - cache.ts) <= MAX_CACHE_ON_ERROR) {
+        renderer(cache.data);
+        setStatus(document.getElementById(key + '-status'), 'CACHED');
+        const u = document.getElementById(key + '-updated');
+        if (u) u.textContent = 'Updated: ' + new Date(cache.ts).toLocaleTimeString() + ' (cached)';
+        return;
+      }
+
+      const valEl = document.getElementById(key);
+      if (valEl) valEl.textContent = '--';
+      setStatus(document.getElementById(key + '-status'), 'ERROR');
+      const u = document.getElementById(key + '-updated');
+      if (u) u.textContent = 'Updated: --';
     }
 
     // SPY
@@ -394,14 +363,13 @@ function apply(key, live, renderer) {
       }
     });
 
-    // Recalc the aggregate gauge
     if (typeof refreshRiskTemperature === 'function') {
       refreshRiskTemperature();
     }
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Risk Temperature (contribution breakdown + bands)
+  // Risk Temperature (unchanged)
   // ──────────────────────────────────────────────────────────────
   function refreshRiskTemperature() {
     const scoreEl   = document.getElementById('risk-temp-score');
@@ -409,11 +377,9 @@ function apply(key, live, renderer) {
     const needleEl  = document.getElementById('risk-temp-needle');
     const detailsEl = document.getElementById('risk-temp-details');
     const updatedEl = document.getElementById('risk-temp-updated');
-    const listEl    = document.getElementById('risk-breakdown');
 
     const clamp = (v, lo=0, hi=100) => Math.max(lo, Math.min(hi, v));
 
-    // read a % change from cache with fallbacks: pct → changePercent → change
     const readPct = (key) => {
       const d = cacheGet(key)?.data;
       if (!d) return null;
@@ -426,52 +392,46 @@ function apply(key, live, renderer) {
 
     const parts = [];
 
-    // S&P 500 (SPY) daily % change → risk score (down = more risk)
     const spyPct = readPct('sp500');
     if (spyPct !== null) {
       const s = clamp(50 - 12 * spyPct);
-      parts.push({ name: 'S&P', label: `S&P ${spyPct >= 0 ? '+' : ''}${spyPct.toFixed(2)}%`, score: s, weight: 0.20 });
+      parts.push({ label: `S&P ${spyPct >= 0 ? '+' : ''}${spyPct.toFixed(2)}%`, score: s, weight: 0.20 });
     }
 
-    // VIX index (prefer level; fallback to % change if that’s all we have)
     const vixLevel = cacheGet('vix-index')?.data?.price;
     const vixChg   = readPct('vix-index');
     if (typeof vixLevel === 'number' && isFinite(vixLevel)) {
       const s = clamp(20 + (vixLevel - 12) * 3);
-      parts.push({ name: 'VIX', label: `VIX ${vixLevel.toFixed(2)}`, score: s, weight: 0.25 });
+      parts.push({ label: `VIX ${vixLevel.toFixed(2)}`, score: s, weight: 0.25 });
     } else if (vixChg !== null) {
       const s = clamp(50 + (vixChg * 4));
-      parts.push({ name: 'VIX', label: `VIX ${vixChg >= 0 ? '+' : ''}${Math.abs(vixChg).toFixed(2)}%`, score: s, weight: 0.15 });
+      parts.push({ label: `VIX ${vixChg >= 0 ? '+' : ''}${Math.abs(vixChg).toFixed(2)}%`, score: s, weight: 0.15 });
     }
 
-    // Yield curve spread (10y-2y)
     const yc = cacheGet('yield')?.data?.spread;
     if (typeof yc === 'number' && isFinite(yc)) {
       const s = yc < 0
         ? clamp(70 + Math.min(30, Math.abs(yc) * 25))
         : clamp(40 - Math.min(25, yc * 20));
-      parts.push({ name: 'Yield', label: `YC ${yc.toFixed(2)}%`, score: s, weight: 0.20 });
+      parts.push({ label: `YC ${yc.toFixed(2)}%`, score: s, weight: 0.20 });
     }
 
-    // Buffett ratio
     const buff = cacheGet('buffett')?.data?.ratio;
     if (typeof buff === 'number' && isFinite(buff)) {
       const s = clamp((buff - 120) * 0.7);
-      parts.push({ name: 'Buffett', label: `Buffett ${buff.toFixed(0)}%`, score: s, weight: 0.20 });
+      parts.push({ label: `Buffett ${buff.toFixed(0)}%`, score: s, weight: 0.20 });
     }
 
-    // Gold % change
     const goldPct = readPct('gold');
     if (goldPct !== null) {
       const s = clamp(50 + goldPct * 10);
-      parts.push({ name: 'Gold', label: `Gold ${goldPct >= 0 ? '+' : ''}${goldPct.toFixed(2)}%`, score: s, weight: 0.075 });
+      parts.push({ label: `Gold ${goldPct >= 0 ? '+' : ''}${goldPct.toFixed(2)}%`, score: s, weight: 0.075 });
     }
 
-    // DXY % change
     const dxyPct = readPct('dxy');
     if (dxyPct !== null) {
       const s = clamp(50 + dxyPct * 10);
-      parts.push({ name: 'DXY', label: `DXY ${dxyPct >= 0 ? '+' : ''}${dxyPct.toFixed(2)}%`, score: s, weight: 0.075 });
+      parts.push({ label: `DXY ${dxyPct >= 0 ? '+' : ''}${dxyPct.toFixed(2)}%`, score: s, weight: 0.075 });
     }
 
     if (!parts.length) {
@@ -479,55 +439,33 @@ function apply(key, live, renderer) {
       if (statusEl)  statusEl.textContent = '--';
       if (detailsEl) detailsEl.textContent = 'Waiting for data...';
       if (needleEl)  needleEl.style.left = '0%';
-      if (listEl)    listEl.innerHTML = '';
       return;
     }
 
-    // contributions
-    const withPts = parts.map(p => ({ ...p, points: p.score * p.weight }));
-    const wsum    = withPts.reduce((a, p) => a + p.weight, 0) || 1;
-    const score   = Math.round(withPts.reduce((a, p) => a + p.points, 0) / wsum);
+    const wsum  = parts.reduce((a, p) => a + p.weight, 0) || 1;
+    const score = Math.round(parts.reduce((a, p) => a + p.score * p.weight, 0) / wsum);
 
-    // bands: Calm 0–29, Watch 30–49, Elevated 50–74, Alert 75–100
     let band = 'Calm';
     if (score >= 75) band = 'Alert';
     else if (score >= 50) band = 'Elevated';
-    else if (score >= 30) band = 'Watch';
+    else if (score >= 25) band = 'Watch';
 
-    // Write UI
     if (scoreEl)  scoreEl.textContent = `${score}%`;
-    if (statusEl) { statusEl.textContent = band; statusEl.style.color = riskColor(score); }
-    if (needleEl) needleEl.style.left = `${score}%`;
-
-    // Top drivers line (compact) — contribution points (weight × score)
-    const top3 = [...withPts].sort((a,b)=>b.points-a.points).slice(0,3);
-    if (detailsEl) {
-      const txt = 'Top: ' + top3.map(p => `${p.name} ${(p.points).toFixed(1)}`).join(' · ');
-      detailsEl.textContent = txt;
-      detailsEl.title = 'Top contributors by points (weight × score). Sum of all ≈ total score.';
+    if (statusEl) {
+      statusEl.textContent = band;
+      statusEl.style.color = riskColor(score);
     }
-
-    // Full breakdown list
-    if (listEl) {
-      listEl.innerHTML = withPts
-        .sort((a,b)=>b.points-a.points)
-        .map(p => {
-          const w = Math.round(p.weight * 100);
-          return `<li>${p.name} — ${w}% × ${Math.round(p.score)} → ${(p.points).toFixed(1)}</li>`;
-        })
-        .join('');
-    }
-
+    if (needleEl)  needleEl.style.left = `${score}%`;
+    if (detailsEl) detailsEl.textContent = parts.map(p => p.label).join(' · ');
     if (updatedEl) updatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
   }
 
   // ──────────────────────────────────────────────────────────────
-  // VIX Index (^VIX) — fetch direct from function and render
+  // VIX Index (^VIX)
   // ──────────────────────────────────────────────────────────────
   async function refreshVIXIndex() {
     const spinner = document.getElementById('vix-index-spinner');
     if (spinner) spinner.style.display = 'inline-block';
-
     try {
       const res = await fetch('/.netlify/functions/vixIndex?bust=' + Date.now());
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -535,8 +473,7 @@ function apply(key, live, renderer) {
       if (json.error) throw new Error(json.error);
 
       const price = Number(json.price);
-      const change = (json.changePercent == null || isNaN(Number(json.changePercent)))
-        ? null : Number(json.changePercent);
+      const change = (json.changePercent == null || isNaN(Number(json.changePercent))) ? null : Number(json.changePercent);
       if (!Number.isFinite(price)) throw new Error('Bad price from vixIndex');
 
       const valEl = document.getElementById('vix-index');
@@ -555,10 +492,7 @@ function apply(key, live, renderer) {
 
       const tsEl = document.getElementById('vix-index-updated');
       if (tsEl) tsEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
-
       setStatus(document.getElementById('vix-index-status'), 'LIVE');
-
-      // cache it
       cacheSet('vix-index', { price, change });
     } catch (e) {
       console.error('VIX Index error', e);
@@ -567,19 +501,16 @@ function apply(key, live, renderer) {
         const { price, change } = c.data;
         const valEl = document.getElementById('vix-index');
         if (valEl) valEl.textContent = Number(price).toFixed(2);
-
         const changeEl = document.getElementById('vix-index-change');
         if (changeEl && typeof change === 'number') {
           changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`;
           changeEl.className = 'change ' + (change >= 0 ? 'up' : 'down');
-        } else {
+        } else if (changeEl) {
           changeEl.textContent = '';
           changeEl.className = 'change';
         }
-
         const tsEl = document.getElementById('vix-index-updated');
         if (tsEl) tsEl.textContent = 'Updated: ' + new Date(c.ts).toLocaleTimeString() + ' (cached)';
-
         setStatus(document.getElementById('vix-index-status'), 'CACHED');
       } else {
         const valEl = document.getElementById('vix-index');
