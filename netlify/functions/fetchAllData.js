@@ -34,16 +34,48 @@ export async function handler(event) {
     return { price: Number(json[0].price), pct: Number(json[0].changesPercentage) };
   }
 
-  // Try TwelveData; on ANY failure, fall back to FMP if available.
-  async function tdWithFmpFallback(symbol) {
+  // Stooq CSV (daily) fallback. Examples:
+  //   US equities need .us (spy.us, tsla.us, lit.us). Gold FX is xauusd.
+  async function fetchStooqDaily(stooqSymbol) {
+    const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSymbol)}&i=d`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = (await res.text()).trim();
+    if (!text || text === 'NO DATA') throw new Error('Stooq: no data');
+
+    const lines = text.split('\n').filter(Boolean);
+    if (lines.length < 2) throw new Error('Stooq: insufficient rows');
+
+    const last = lines[lines.length - 1].split(',');
+    const prev = lines.length >= 3 ? lines[lines.length - 2].split(',') : null;
+
+    const lastClose = Number(last[4]);
+    if (!Number.isFinite(lastClose)) throw new Error('Stooq: bad last close');
+
+    let pct = null;
+    if (prev) {
+      const prevClose = Number(prev[4]);
+      if (Number.isFinite(prevClose) && prevClose !== 0) {
+        pct = Number((((lastClose - prevClose) / prevClose) * 100).toFixed(2));
+      }
+    }
+    return { price: lastClose, pct };
+  }
+
+  // Try TwelveData → FMP → Stooq (CSV)
+  async function tdFmpStooq(symbol, stooqSymbol) {
     try {
       return await fetchTwelve(symbol);
-    } catch (_e) {
+    } catch (_e1) {
       try {
         if (FMP_KEY) return await fetchFMP(symbol);
-        throw _e;
-      } catch (e2) {
-        return { error: e2.message || String(e2) };
+        throw _e1;
+      } catch (_e2) {
+        try {
+          return await fetchStooqDaily(stooqSymbol);
+        } catch (e3) {
+          return { error: e3.message || String(e3) };
+        }
       }
     }
   }
@@ -74,11 +106,11 @@ export async function handler(event) {
     return { price, pct };
   }
 
-  // ---------- Equities / ETFs (with fallback) ----------
-  results.spy  = await tdWithFmpFallback('SPY');
-  results.vixy = await tdWithFmpFallback('VIXY');
-  results.tsla = await tdWithFmpFallback('TSLA');
-  results.lit  = await tdWithFmpFallback('LIT');
+  // ---------- Equities / ETFs (with fallbacks) ----------
+  // NOTE: removed VIXY fetch to save API credits; you use the true VIX via its own function.
+  results.spy  = await tdFmpStooq('SPY',  'spy.us');
+  results.tsla = await tdFmpStooq('TSLA', 'tsla.us');
+  results.lit  = await tdFmpStooq('LIT',  'lit.us');
 
   // ---------- Internal lambdas ----------
   try {
@@ -89,8 +121,6 @@ export async function handler(event) {
     results.yieldCurve = { error: err.message };
   }
 
-  // (Estimated Buffett removed earlier by you)
-
   try {
     const r = await fetch(`${base}/.netlify/functions/buffett?bust=${bust}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -99,18 +129,24 @@ export async function handler(event) {
     results.buffett = { error: err.message };
   }
 
-  // ---------- Gold & USD index ----------
-  // Gold → use the dedicated lambda (proven working & handles FRED quirks)
+  // ---------- Gold & USD index with robust fallbacks ----------
+  // GOLD: try FRED PM → FRED AM → Stooq xauusd
   try {
-    const r = await fetch(`${base}/.netlify/functions/gold?bust=${bust}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    results.gold = await r.json();
+    try {
+      results.gold = await fredLatestPair('GOLDPMGBD228NLBM'); // LBMA PM fix, USD/oz
+    } catch (_ePm) {
+      try {
+        results.gold = await fredLatestPair('GOLDAMGBD228NLBM'); // LBMA AM fix, USD/oz
+      } catch (_eAm) {
+        results.gold = await fetchStooqDaily('xauusd'); // FX proxy; price in USD/oz, daily close
+      }
+    }
   } catch (err) {
     results.gold = { error: err.message };
   }
 
-  // DXY (broad USD index) from FRED (this has been reliable)
   try {
+    // Broad USD index (daily)
     results.dxy = await fredLatestPair('DTWEXBGS');
   } catch (err) {
     results.dxy = { error: err.message };
